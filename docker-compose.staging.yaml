@@ -1,0 +1,13 @@
+name: tripstar-staging
+
+services:
+  trip-planner:
+    container_name: helloagents-trip-planner-staging
+    ports: !override
+      - "127.0.0.1:17861:7860"
+    volumes: !override
+      - trip_data:/app/backend/data
+
+volumes:
+  trip_data:
+    name: tripstar_staging_data
