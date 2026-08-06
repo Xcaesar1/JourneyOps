@@ -10,7 +10,6 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from ...agents.trip_planner_agent import get_trip_planner_agent
 from ...models.schemas import TripPlanResponse, TripRequest
 from ...services.knowledge_graph_service import build_knowledge_graph
 
@@ -20,6 +19,13 @@ router = APIRouter(prefix="/trip", tags=["旅行规划"])
 _tasks: Dict[str, Dict[str, Any]] = {}
 _FINAL_TASK_STATUS = {"completed", "failed"}
 _TASKS_DATA_DIR = Path(__file__).resolve().parents[3] / "data" / "trip_tasks"
+
+
+def _get_trip_planner_agent():
+    """Import the legacy planner only when a legacy planning path needs it."""
+    from ...agents.trip_planner_agent import get_trip_planner_agent
+
+    return get_trip_planner_agent()
 
 
 def _create_task_state(task_id: str) -> Dict[str, Any]:
@@ -328,7 +334,7 @@ async def _run_trip_planning(task_id: str, request: TripRequest):
             progress=10,
             message="正在获取多智能体系统实例...",
         )
-        agent = get_trip_planner_agent()
+        agent = _get_trip_planner_agent()
 
         async def progress_callback(stage: str, message: str, progress: int) -> None:
             await _update_task_state(
@@ -502,7 +508,7 @@ async def get_task_status(task_id: str):
 async def health_check():
     """健康检查。"""
     try:
-        agent = get_trip_planner_agent()
+        agent = _get_trip_planner_agent()
         return {
             "status": "healthy",
             "service": "trip-planner",

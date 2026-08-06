@@ -16,13 +16,13 @@ class CityStay(BaseModel):
 class TripRequest(BaseModel):
     """旅行规划请求"""
     city: str = Field(default="", description="目的地城市(单城市兼容)", example="北京")
-    cities: List[CityStay] = Field(default=[], description="多城市行程配置")
+    cities: List[CityStay] = Field(default_factory=list, description="多城市行程配置")
     start_date: str = Field(..., description="开始日期 YYYY-MM-DD", example="2025-06-01")
     end_date: str = Field(..., description="结束日期 YYYY-MM-DD", example="2025-06-03")
     travel_days: int = Field(..., description="旅行天数", ge=1, le=30, example=3)
     transportation: str = Field(..., description="交通方式", example="公共交通")
     accommodation: str = Field(..., description="住宿偏好", example="经济型酒店")
-    preferences: List[str] = Field(default=[], description="旅行偏好标签", example=["历史文化", "美食"])
+    preferences: List[str] = Field(default_factory=list, description="旅行偏好标签", example=["历史文化", "美食"])
     free_text_input: Optional[str] = Field(default="", description="额外要求", example="希望多安排一些博物馆")
     language: Optional[str] = Field(default="zh", description="输出语言(zh/en/ja)", example="en")
 
@@ -125,8 +125,8 @@ class DayPlan(BaseModel):
     transportation: str = Field(..., description="交通方式")
     accommodation: str = Field(..., description="住宿")
     hotel: Optional[Hotel] = Field(default=None, description="推荐酒店")
-    attractions: List[Attraction] = Field(default=[], description="景点列表")
-    meals: List[Meal] = Field(default=[], description="餐饮列表")
+    attractions: List[Attraction] = Field(default_factory=list, description="景点列表")
+    meals: List[Meal] = Field(default_factory=list, description="餐饮列表")
 
 
 class WeatherInfo(BaseModel):
@@ -169,11 +169,11 @@ class Budget(BaseModel):
 class TripPlan(BaseModel):
     """旅行计划"""
     city: str = Field(..., description="主城市(兼容)/首个城市")
-    cities: List[str] = Field(default=[], description="所有途经城市列表")
+    cities: List[str] = Field(default_factory=list, description="所有途经城市列表")
     start_date: str = Field(..., description="开始日期")
     end_date: str = Field(..., description="结束日期")
     days: List[DayPlan] = Field(..., description="每日行程")
-    weather_info: List[WeatherInfo] = Field(default=[], description="天气信息")
+    weather_info: List[WeatherInfo] = Field(default_factory=list, description="天气信息")
     overall_suggestions: str = Field(..., description="总体建议")
     budget: Optional[Budget] = Field(default=None, description="预算信息")
 
@@ -204,9 +204,9 @@ class GraphCategory(BaseModel):
 
 class KnowledgeGraphData(BaseModel):
     """知识图谱数据"""
-    nodes: List[GraphNode] = Field(default=[], description="节点列表")
-    edges: List[GraphEdge] = Field(default=[], description="边列表")
-    categories: List[GraphCategory] = Field(default=[], description="分类列表")
+    nodes: List[GraphNode] = Field(default_factory=list, description="节点列表")
+    edges: List[GraphEdge] = Field(default_factory=list, description="边列表")
+    categories: List[GraphCategory] = Field(default_factory=list, description="分类列表")
 
 
 class TripPlanResponse(BaseModel):
@@ -232,7 +232,7 @@ class POISearchResponse(BaseModel):
     """POI搜索响应"""
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
-    data: List[POIInfo] = Field(default=[], description="POI列表")
+    data: List[POIInfo] = Field(default_factory=list, description="POI列表")
 
 
 class RouteInfo(BaseModel):
@@ -254,7 +254,7 @@ class WeatherResponse(BaseModel):
     """天气查询响应"""
     success: bool = Field(..., description="是否成功")
     message: str = Field(default="", description="消息")
-    data: List[WeatherInfo] = Field(default=[], description="天气信息")
+    data: List[WeatherInfo] = Field(default_factory=list, description="天气信息")
 
 
 # ============ 错误响应 ============
@@ -278,7 +278,7 @@ class TripChatRequest(BaseModel):
     """行程问答请求"""
     message: str = Field(..., description="用户提问内容")
     trip_plan: dict = Field(..., description="当前旅行计划(JSON对象)")
-    history: Optional[List[ChatMessage]] = Field(default=[], description="历史对话记录")
+    history: Optional[List[ChatMessage]] = Field(default_factory=list, description="历史对话记录")
 
 
 class TripChatResponse(BaseModel):

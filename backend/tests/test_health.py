@@ -2,10 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from backend.app.api import health
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from backend.app.api import health
 
 
 class HealthEndpointsTest(unittest.TestCase):

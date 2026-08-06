@@ -1,2 +1,8 @@
 backend/runtime_settings.json
 backend/data/trip_tasks
+.env.staging
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/

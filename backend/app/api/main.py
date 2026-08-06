@@ -1,23 +1,24 @@
-"""FastAPI主应用"""
-
-import sys
 import os
+import sys
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from ..config import get_settings, print_config, validate_config
+from .errors import is_v2_path, register_api_exception_handlers
+from .routes import trip, poi, map as map_routes, chat, settings as settings_routes
+from .health import router as health_router
+from .v2 import trips as v2_trips
 
 # 强制 stdout/stderr 使用 UTF-8，防止非 UTF-8 控制台（如 cp932）输出中文时崩溃
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-if hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-if hasattr(sys.stderr, 'reconfigure'):
-    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-
-from pathlib import Path
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from ..config import get_settings, validate_config, print_config
-from .routes import trip, poi, map as map_routes, chat, settings as settings_routes
-from .health import router as health_router
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # 获取配置
 settings = get_settings()
@@ -28,8 +29,10 @@ app = FastAPI(
     version=settings.app_version,
     description="基于HelloAgents框架的智能旅行规划助手API",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
+
+register_api_exception_handlers(app)
 
 @app.middleware("http")
 async def intercept_proxy_path(request: Request, call_next):
@@ -60,6 +63,7 @@ app.include_router(map_routes.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(health_router)
+app.include_router(v2_trips.router, prefix="/api/v2")
 
 
 @app.on_event("startup")
@@ -131,6 +135,9 @@ if _frontend_dist.exists():
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         """SPA 前端路由 fallback"""
+        if is_v2_path(f"/{full_path.lstrip('/')}"):
+            raise HTTPException(status_code=404, detail="Not Found")
+
         file_path = _frontend_dist / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
@@ -144,5 +151,5 @@ if __name__ == "__main__":
         "app.api.main:app",
         host=settings.host,
         port=settings.port,
-        reload=True
+        reload=True,
     )
