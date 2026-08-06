@@ -257,6 +257,20 @@ stateDiagram-v2
 | 生产数据卷部署前后摘要 | PASS，SHA-256 一致 |
 | staging 运行状态 | PASS，未创建或启动 staging 容器 |
 
+### 可复现命令记录
+
+以下命令为 2026-08-06 阶段 0 验证时实际使用的可复现命令：
+
+```bash
+docker exec helloagents-trip-planner python -m unittest backend.tests.test_health -v
+cd /opt/tripstar/TripStar && docker compose config --quiet
+curl --fail --silent --show-error http://127.0.0.1:17860/health
+curl --fail --silent --show-error http://127.0.0.1:17860/health/live
+curl --fail --silent --show-error http://127.0.0.1:17860/health/ready
+```
+
+其中，`unittest` 命令当日通过 3/3；`docker compose config --quiet` 当日通过；`/health`、`/health/live` 和 `/health/ready` 当日均返回 HTTP 200。
+
 测试环境输出了 FastAPI TestClient 关于未来 `httpx2` 的弃用警告，不影响当前 3 个测试通过；依赖升级留给后续独立维护，不在阶段 0 扩大范围。
 
 阶段 0 不授权开始阶段 1。只有本文件、测试、Compose 渲染、生产健康检查和独立提交全部验收通过后，才能由用户单独下发下一阶段。
