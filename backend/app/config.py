@@ -57,6 +57,7 @@ class Settings(BaseSettings):
         default="gpt-4",
         validation_alias=AliasChoices("OPENAI_MODEL", "LLM_MODEL_ID"),
     )
+    legacy_json_repair: bool = True
 
     # 日志配置
     log_level: str = "INFO"

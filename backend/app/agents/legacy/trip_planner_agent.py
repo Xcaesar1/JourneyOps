@@ -984,6 +984,16 @@ JSON 的 key 名称保持英文不变，只翻译 value 中的文字。"""
             else:
                 raise ValueError("响应中未找到JSON数据")
 
+            # Always prefer strict parsing. The legacy repair chain is an explicit,
+            # temporary compatibility fallback and is never used by JourneyGraph.
+            try:
+                return TripPlan(**json.loads(json_str))
+            except Exception as direct_error:
+                if not get_settings().legacy_json_repair:
+                    raise ValueError(
+                        "Legacy JSON response is invalid and repair is disabled."
+                    ) from direct_error
+
             # ====== 第1轮：基础清理 + 解析 ======
             json_str = self._sanitize_json_str(json_str)
 
