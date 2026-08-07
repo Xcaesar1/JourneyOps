@@ -28,6 +28,14 @@ V2_NOT_FOUND_ERROR_EXAMPLE: dict[str, Any] = {
     }
 }
 
+V2_CONFLICT_ERROR_EXAMPLE: dict[str, Any] = {
+    "error": {
+        "code": "conflict",
+        "message": "Idempotency-Key has already been used with a different request payload.",
+        "details": [],
+    }
+}
+
 V2_INTERNAL_ERROR_EXAMPLE: dict[str, Any] = {
     "error": {
         "code": "internal_server_error",

@@ -95,3 +95,38 @@ def test_legacy_submission_uses_durable_store_without_loading_planner(
     assert list(tasks_dir.glob("*.json")) == []
     with db_session_factory() as session:
         assert session.scalar(select(func.count()).select_from(TripTask)) == 1
+
+
+def test_legacy_reused_idempotency_key_rejects_different_payload(client) -> None:
+    payload = {
+        "city": "Tokyo",
+        "cities": [{"city": "Tokyo", "days": 2}],
+        "start_date": "2026-10-10",
+        "end_date": "2026-10-11",
+        "travel_days": 2,
+        "transportation": "public transit",
+        "accommodation": "midscale hotel",
+        "preferences": ["food"],
+        "free_text_input": "",
+        "language": "en",
+    }
+    conflicting = {
+        **payload,
+        "city": "Kyoto",
+        "cities": [{"city": "Kyoto", "days": 2}],
+    }
+
+    first = client.post(
+        "/api/trip/plan",
+        json=payload,
+        headers={"Idempotency-Key": "legacy-conflict"},
+    )
+    second = client.post(
+        "/api/trip/plan",
+        json=conflicting,
+        headers={"Idempotency-Key": "legacy-conflict"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json() == {"detail": "幂等键已用于不同的请求内容"}

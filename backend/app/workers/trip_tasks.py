@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 from typing import Any
+from uuid import uuid4
 
 from celery import signals
 from celery.exceptions import Retry
@@ -20,6 +21,7 @@ from ..db.repository import (
     get_trip_version,
     save_trip_version,
     stale_recoverable_tasks,
+    task_needs_recovery,
     update_task_state,
 )
 from ..db.session import SessionLocal
@@ -29,6 +31,9 @@ from .celery_app import celery_app
 
 LOGGER = logging.getLogger(__name__)
 TASK_NAME = "journeyops.plan_trip"
+_RECOVERY_STOP = threading.Event()
+_RECOVERY_THREAD: threading.Thread | None = None
+_RECOVERY_THREAD_GUARD = threading.Lock()
 
 
 class TaskCancelled(Exception):
@@ -46,7 +51,7 @@ def recover_incomplete_tasks(stale_after_seconds: int | None = None) -> dict[str
     stale_after = (
         stale_after_seconds
         if stale_after_seconds is not None
-        else int(os.getenv("TRIP_TASK_STALE_AFTER", "0"))
+        else int(os.getenv("TRIP_TASK_STALE_AFTER", "120"))
     )
     summary = {"dispatched": 0, "failed": 0, "cancelled": 0}
     with SessionLocal() as session:
@@ -55,7 +60,7 @@ def recover_incomplete_tasks(stale_after_seconds: int | None = None) -> dict[str
     for candidate in candidates:
         with SessionLocal() as session:
             task = get_task(session, candidate.id, for_update=True)
-            if task is None or task.status in FINAL_TASK_STATUSES:
+            if task is None or not task_needs_recovery(task, stale_after):
                 continue
             if task.status == "cancel_requested" or task.cancel_requested:
                 task = update_task_state(
@@ -68,6 +73,8 @@ def recover_incomplete_tasks(stale_after_seconds: int | None = None) -> dict[str
                 )
                 publish_task_event(task)
                 summary["cancelled"] += 1
+                continue
+            if task.status == "processing" and _execution_lock_active(task.id):
                 continue
             if task.status == "processing" and task.attempt_count >= task.max_attempts:
                 task.status = "failed"
@@ -83,14 +90,20 @@ def recover_incomplete_tasks(stale_after_seconds: int | None = None) -> dict[str
             task.status = "retrying" if task.status == "processing" else "queued"
             task.stage = "worker_recovery" if task.status == "retrying" else "queued"
             task.message = "Task recovered after worker interruption."
-            task.celery_task_id = None
+            recovery_claim = f"recovery-{uuid4().hex}"
+            task.celery_task_id = recovery_claim
             session.commit()
             session.refresh(task)
             task_id = task.id
 
         broker_task_id = enqueue_trip_task(task_id)
         with SessionLocal() as session:
-            task = attach_celery_task(session, task_id, broker_task_id)
+            task = attach_celery_task(
+                session,
+                task_id,
+                broker_task_id,
+                expected_celery_task_id=recovery_claim,
+            )
             publish_task_event(task)
         summary["dispatched"] += 1
 
@@ -99,11 +112,44 @@ def recover_incomplete_tasks(stale_after_seconds: int | None = None) -> dict[str
 
 @signals.worker_ready.connect
 def _recover_when_worker_is_ready(**_: Any) -> None:
+    _run_recovery_safely("startup")
+    _start_recovery_thread()
+
+
+@signals.worker_shutdown.connect
+def _stop_recovery_when_worker_shuts_down(**_: Any) -> None:
+    _RECOVERY_STOP.set()
+    thread = _RECOVERY_THREAD
+    if thread is not None:
+        thread.join(timeout=2)
+
+
+def _run_recovery_safely(trigger: str) -> None:
     try:
         summary = recover_incomplete_tasks()
-        LOGGER.info("Worker recovery complete: %s", summary)
+        LOGGER.info("Worker recovery complete (%s): %s", trigger, summary)
     except Exception as exc:
-        LOGGER.error("Worker recovery failed: %s", type(exc).__name__, exc_info=True)
+        LOGGER.error("Worker recovery failed (%s): %s", trigger, type(exc).__name__, exc_info=True)
+
+
+def _start_recovery_thread() -> None:
+    global _RECOVERY_THREAD
+    with _RECOVERY_THREAD_GUARD:
+        if _RECOVERY_THREAD is not None and _RECOVERY_THREAD.is_alive():
+            return
+        _RECOVERY_STOP.clear()
+        _RECOVERY_THREAD = threading.Thread(
+            target=_recovery_loop,
+            name="journeyops-task-recovery",
+            daemon=True,
+        )
+        _RECOVERY_THREAD.start()
+
+
+def _recovery_loop() -> None:
+    interval = max(5, int(os.getenv("TRIP_TASK_RECOVERY_INTERVAL", "60")))
+    while not _RECOVERY_STOP.wait(interval):
+        _run_recovery_safely("periodic")
 
 
 @celery_app.task(bind=True, name=TASK_NAME)
@@ -112,7 +158,10 @@ def run_trip_planning(self: Any, task_id: str) -> dict[str, Any]:
     redis_client = Redis.from_url(redis_url(), decode_responses=True)
     lock_timeout = int(os.getenv("TRIP_TASK_LOCK_TIMEOUT", "90"))
     lock = redis_client.lock(
-        f"journeyops:task-lock:{task_id}", timeout=lock_timeout, blocking_timeout=1
+        f"journeyops:task-lock:{task_id}",
+        timeout=lock_timeout,
+        blocking_timeout=1,
+        thread_local=False,
     )
     acquired = lock.acquire(blocking=True)
     if not acquired:
@@ -359,3 +408,17 @@ def _renew_lock(lock: Any, lock_timeout: int, stop: threading.Event, task_id: st
             lock.extend(lock_timeout, replace_ttl=True)
         except Exception:
             LOGGER.warning("Unable to renew task lock for %s", task_id)
+
+
+def _execution_lock_active(task_id: str) -> bool:
+    """Return whether another worker still owns the renewable execution lock."""
+    client = Redis.from_url(
+        redis_url(),
+        decode_responses=True,
+        socket_connect_timeout=1,
+        socket_timeout=1,
+    )
+    try:
+        return bool(client.exists(f"journeyops:task-lock:{task_id}"))
+    finally:
+        client.close()

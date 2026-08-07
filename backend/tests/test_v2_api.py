@@ -58,6 +58,51 @@ def test_v2_idempotency_header_controls_deduplication(client) -> None:
     assert first.json()["task_id"] != second.json()["task_id"]
 
 
+def test_v2_reused_idempotency_key_rejects_different_payload(client) -> None:
+    first = client.post(
+        "/api/v2/trips",
+        json=TRIP_REQUEST_V2_EXAMPLE,
+        headers={"Idempotency-Key": "mobile-request-conflict"},
+    )
+    conflicting = client.post(
+        "/api/v2/trips",
+        json=_payload_with(origin="Beijing"),
+        headers={"Idempotency-Key": "mobile-request-conflict"},
+    )
+
+    assert first.status_code == 202
+    assert conflicting.status_code == 409
+    assert conflicting.json()["error"]["code"] == "conflict"
+
+
+def test_v2_dispatch_confirmation_failure_stays_recoverable(
+    client,
+    db_session_factory,
+    monkeypatch,
+) -> None:
+    from backend.app.api.v2 import trips as v2_trip_routes
+    from backend.app.db.models import TripTask
+    from sqlalchemy import select
+
+    def fail_confirmation(*_args, **_kwargs):
+        raise RuntimeError("synthetic confirmation failure")
+
+    monkeypatch.setattr(v2_trip_routes, "attach_celery_task", fail_confirmation)
+    response = client.post(
+        "/api/v2/trips",
+        json=TRIP_REQUEST_V2_EXAMPLE,
+        headers={"Idempotency-Key": "dispatch-confirmation-failure"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "service_unavailable"
+    with db_session_factory() as session:
+        task = session.scalar(select(TripTask))
+        assert task is not None
+        assert task.status == "queued"
+        assert task.celery_task_id is None
+
+
 def test_v2_cancel_and_retry_queued_task(client) -> None:
     created = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE).json()
 
@@ -153,6 +198,8 @@ def test_openapi_includes_durable_v2_examples(client) -> None:
 
     request_examples = post_operation["requestBody"]["content"]["application/json"]["examples"]
     accepted_example = post_operation["responses"]["202"]["content"]["application/json"]["example"]
+    conflict_example = post_operation["responses"]["409"]["content"]["application/json"]["example"]
 
     assert "durable_submission" in request_examples
     assert accepted_example["status"] == "queued"
+    assert conflict_example["error"]["code"] == "conflict"

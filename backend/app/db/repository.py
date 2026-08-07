@@ -15,6 +15,10 @@ from .models import Trip, TripTask, TripVersion
 FINAL_TASK_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
 
+class IdempotencyConflictError(ValueError):
+    """Raised when one idempotency key is reused for a different request."""
+
+
 def create_or_get_task(
     session: Session,
     *,
@@ -25,6 +29,7 @@ def create_or_get_task(
     """Create a trip and task atomically, or return the idempotent existing task."""
     existing_trip = session.scalar(select(Trip).where(Trip.idempotency_key == idempotency_key))
     if existing_trip is not None:
+        _ensure_same_idempotent_request(existing_trip, request_payload)
         return _task_for_trip(session, existing_trip.id), False
 
     trip = Trip(
@@ -49,6 +54,7 @@ def create_or_get_task(
         concurrent_trip = session.scalar(select(Trip).where(Trip.idempotency_key == idempotency_key))
         if concurrent_trip is None:
             raise
+        _ensure_same_idempotent_request(concurrent_trip, request_payload)
         return _task_for_trip(session, concurrent_trip.id), False
     session.refresh(task)
     return task, True
@@ -67,10 +73,22 @@ def get_trip(session: Session, trip_id: str) -> Trip | None:
     return session.get(Trip, trip_id)
 
 
-def attach_celery_task(session: Session, task_id: str, celery_task_id: str) -> TripTask:
+def attach_celery_task(
+    session: Session,
+    task_id: str,
+    celery_task_id: str,
+    *,
+    expected_celery_task_id: str | None = None,
+) -> TripTask:
     """Persist the broker task identifier after successful dispatch."""
     task = _required_task(session, task_id, for_update=True)
-    if task.celery_task_id is None:
+    if expected_celery_task_id is not None:
+        if task.celery_task_id != expected_celery_task_id:
+            raise RuntimeError(f"Task {task_id} recovery claim changed before broker confirmation.")
+        task.celery_task_id = celery_task_id
+        session.commit()
+        session.refresh(task)
+    elif task.celery_task_id is None:
         task.celery_task_id = celery_task_id
         session.commit()
         session.refresh(task)
@@ -203,7 +221,7 @@ def get_trip_version(session: Session, trip_id: str, version: int) -> TripVersio
 
 
 def stale_recoverable_tasks(session: Session, stale_after_seconds: int) -> list[TripTask]:
-    """Return queued/retrying/stale-processing work for worker startup recovery."""
+    """Return work whose broker dispatch or execution heartbeat may have been lost."""
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=stale_after_seconds)
     return list(
         session.scalars(
@@ -211,7 +229,10 @@ def stale_recoverable_tasks(session: Session, stale_after_seconds: int) -> list[
                 (TripTask.status == "cancel_requested")
                 | (
                     TripTask.status.in_(["queued", "retrying"])
-                    & (TripTask.celery_task_id.is_(None))
+                    & (
+                        TripTask.celery_task_id.is_(None)
+                        | (TripTask.updated_at < cutoff)
+                    )
                 )
                 | ((TripTask.status == "processing") & (TripTask.updated_at < cutoff))
             )
@@ -219,11 +240,40 @@ def stale_recoverable_tasks(session: Session, stale_after_seconds: int) -> list[
     )
 
 
+def task_needs_recovery(
+    task: TripTask,
+    stale_after_seconds: int,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Revalidate a recovery candidate after acquiring its row lock."""
+    if task.status in FINAL_TASK_STATUSES:
+        return False
+    if task.status == "cancel_requested" or task.cancel_requested:
+        return True
+
+    current_time = now or datetime.now(timezone.utc)
+    updated_at = task.updated_at
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    stale = updated_at < current_time - timedelta(seconds=stale_after_seconds)
+    if task.status in {"queued", "retrying"}:
+        return task.celery_task_id is None or stale
+    return task.status == "processing" and stale
+
+
 def _task_for_trip(session: Session, trip_id: str) -> TripTask:
     task = session.scalar(select(TripTask).where(TripTask.trip_id == trip_id))
     if task is None:
         raise RuntimeError(f"Trip {trip_id} has no durable task.")
     return task
+
+
+def _ensure_same_idempotent_request(trip: Trip, request_payload: dict[str, Any]) -> None:
+    if trip.request_payload != request_payload:
+        raise IdempotencyConflictError(
+            "Idempotency-Key has already been used with a different request payload."
+        )
 
 
 def _required_task(session: Session, task_id: str, *, for_update: bool = False) -> TripTask:

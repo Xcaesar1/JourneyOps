@@ -42,16 +42,18 @@ curl --fail --silent http://127.0.0.1:17861/health/ready
 PostgreSQL 是任务事实源。部署迁移和回滚前创建逻辑备份：
 
 ```bash
+set -euo pipefail
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 BACKUP=/var/backups/tripstar/$STAMP
 sudo install -d -m 0700 "$BACKUP"
 docker exec journeyops-postgres-staging \
   pg_dump -U journeyops -d journeyops -Fc \
-  > "$BACKUP/journeyops-staging.pgdump"
-chmod 0600 "$BACKUP/journeyops-staging.pgdump"
-sha256sum "$BACKUP/journeyops-staging.pgdump" \
-  > "$BACKUP/journeyops-staging.pgdump.sha256"
-sha256sum -c "$BACKUP/journeyops-staging.pgdump.sha256"
+  | sudo tee "$BACKUP/journeyops-staging.pgdump" >/dev/null
+sudo chmod 0600 "$BACKUP/journeyops-staging.pgdump"
+sudo sha256sum "$BACKUP/journeyops-staging.pgdump" \
+  | sudo tee "$BACKUP/journeyops-staging.pgdump.sha256" >/dev/null
+sudo chmod 0600 "$BACKUP/journeyops-staging.pgdump.sha256"
+sudo sha256sum -c "$BACKUP/journeyops-staging.pgdump.sha256"
 ```
 
 Redis 不保存任务真相。通常不恢复 Redis volume；Worker 启动扫描负责处理未投递或陈旧任务。
@@ -61,14 +63,16 @@ Redis 不保存任务真相。通常不恢复 Redis volume；Worker 启动扫描
 恢复会覆盖目标数据库，只能在新的 staging 演练栈中执行，并需先确认目标容器名和卷名。
 
 ```bash
+set -euo pipefail
 test "$TARGET_POSTGRES_CONTAINER" = journeyops-postgres-restore-drill
 docker exec "$TARGET_POSTGRES_CONTAINER" \
   dropdb -U journeyops --if-exists journeyops
 docker exec "$TARGET_POSTGRES_CONTAINER" \
   createdb -U journeyops journeyops
-docker exec -i "$TARGET_POSTGRES_CONTAINER" \
+sudo cat /var/backups/tripstar/<STAMP>/journeyops-staging.pgdump \
+  | docker exec -i "$TARGET_POSTGRES_CONTAINER" \
   pg_restore -U journeyops -d journeyops --clean --if-exists \
-  < /var/backups/tripstar/<STAMP>/journeyops-staging.pgdump
+    --no-owner --no-privileges
 ```
 
 恢复后执行 `alembic current`、三表计数、`/health/ready` 和一个脱敏测试任务。禁止把恢复
@@ -111,6 +115,12 @@ docker compose \
 
 该命令会删除 `trips`、`trip_tasks`、`trip_versions`，属于破坏性操作；执行前必须有已校验
 `pg_dump`、维护窗口和人工批准。
+
+## Production Promotion Gate
+
+阶段 2 不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
+可重复执行且已在 staging 验证的数据导入方案，并核对任务数、终态数和历史结果。该迁移未完成前，
+不得将阶段 2 栈提升为 production，也不得删除旧 JSON volume。
 
 ## Executed Backup Evidence
 

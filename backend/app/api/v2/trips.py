@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from ...db.models import TripTask
 from ...db.repository import (
+    IdempotencyConflictError,
     attach_celery_task,
     create_or_get_task,
     get_task,
@@ -30,6 +31,7 @@ from ...db.repository import (
 )
 from ...db.session import SessionLocal, get_db_session
 from ...domain.error_models import (
+    V2_CONFLICT_ERROR_EXAMPLE,
     V2_INTERNAL_ERROR_EXAMPLE,
     V2_NOT_FOUND_ERROR_EXAMPLE,
     V2_VALIDATION_ERROR_EXAMPLE,
@@ -68,6 +70,10 @@ DbSession = Annotated[Session, Depends(get_db_session)]
             "model": ErrorEnvelopeV2,
             "content": {"application/json": {"example": V2_NOT_FOUND_ERROR_EXAMPLE}},
         },
+        409: {
+            "model": ErrorEnvelopeV2,
+            "content": {"application/json": {"example": V2_CONFLICT_ERROR_EXAMPLE}},
+        },
         422: {
             "model": ErrorEnvelopeV2,
             "content": {"application/json": {"example": V2_VALIDATION_ERROR_EXAMPLE}},
@@ -93,11 +99,14 @@ def create_trip(
 ) -> TripTaskRecordV2:
     """Persist before dispatch so an API restart cannot lose accepted work."""
     payload = request.model_dump(mode="json")
-    task, created = create_or_get_task(
-        session,
-        request_payload=payload,
-        idempotency_key=_digest_idempotency_key(payload, idempotency_key),
-    )
+    try:
+        task, created = create_or_get_task(
+            session,
+            request_payload=payload,
+            idempotency_key=_digest_idempotency_key(payload, idempotency_key),
+        )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if created:
         task = _dispatch_or_fail(session, task)
     publish_task_event(task)
@@ -192,7 +201,6 @@ async def task_events(websocket: WebSocket, task_id: str) -> None:
 def _dispatch_or_fail(session: Session, task: TripTask) -> TripTask:
     try:
         broker_task_id = enqueue_trip_task(task.id)
-        return attach_celery_task(session, task.id, broker_task_id)
     except Exception as exc:
         failed = update_task_state(
             session,
@@ -206,6 +214,15 @@ def _dispatch_or_fail(session: Session, task: TripTask) -> TripTask:
         )
         publish_task_event(failed)
         raise HTTPException(status_code=503, detail="Task broker is unavailable.") from exc
+
+    try:
+        return attach_celery_task(session, task.id, broker_task_id)
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="Task dispatch was sent but could not be confirmed; recovery is pending.",
+        ) from exc
 
 
 def _required_task(session: Session, task_id: str) -> TripTask:

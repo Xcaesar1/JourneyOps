@@ -105,6 +105,7 @@ def test_worker_startup_recovers_stale_processing_task(
 
     dispatched: list[str] = []
     monkeypatch.setattr(trip_tasks, "SessionLocal", db_session_factory)
+    monkeypatch.setattr(trip_tasks, "_execution_lock_active", lambda _task_id: False)
     monkeypatch.setattr(
         trip_tasks,
         "enqueue_trip_task",
@@ -135,6 +136,7 @@ def test_worker_startup_explicitly_fails_exhausted_task(
         session.commit()
 
     monkeypatch.setattr(trip_tasks, "SessionLocal", db_session_factory)
+    monkeypatch.setattr(trip_tasks, "_execution_lock_active", lambda _task_id: False)
     monkeypatch.setattr(trip_tasks, "publish_task_event", lambda *_args, **_kwargs: None)
 
     summary = trip_tasks.recover_incomplete_tasks(stale_after_seconds=60)
@@ -174,3 +176,127 @@ def test_worker_startup_finishes_interrupted_cancellation(
     assert dispatched == []
     assert cancelled is not None and cancelled.status == "cancelled"
     assert cancelled.finished_at is not None
+
+
+def test_worker_periodic_recovery_redelivers_stale_queued_broker_message(
+    db_session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_id = _create_task(db_session_factory)
+    with db_session_factory() as session:
+        task = get_task(session, task_id, for_update=True)
+        assert task is not None
+        task.celery_task_id = "lost-broker-message"
+        task.updated_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        session.commit()
+
+    dispatched: list[str] = []
+
+    def enqueue_replacement(recovered_task_id: str) -> str:
+        with db_session_factory() as session:
+            claimed = get_task(session, recovered_task_id)
+            assert claimed is not None
+            assert claimed.celery_task_id is not None
+            assert claimed.celery_task_id.startswith("recovery-")
+        dispatched.append(recovered_task_id)
+        return "replacement-message"
+
+    monkeypatch.setattr(trip_tasks, "SessionLocal", db_session_factory)
+    monkeypatch.setattr(
+        trip_tasks,
+        "enqueue_trip_task",
+        enqueue_replacement,
+    )
+    monkeypatch.setattr(trip_tasks, "publish_task_event", lambda *_args, **_kwargs: None)
+
+    summary = trip_tasks.recover_incomplete_tasks(stale_after_seconds=60)
+
+    with db_session_factory() as session:
+        recovered = get_task(session, task_id)
+    assert summary == {"dispatched": 1, "failed": 0, "cancelled": 0}
+    assert dispatched == [task_id]
+    assert recovered is not None and recovered.celery_task_id == "replacement-message"
+
+
+def test_worker_recovery_skips_fresh_queued_broker_message(
+    db_session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_id = _create_task(db_session_factory)
+    with db_session_factory() as session:
+        task = get_task(session, task_id, for_update=True)
+        assert task is not None
+        task.celery_task_id = "live-broker-message"
+        session.commit()
+
+    monkeypatch.setattr(trip_tasks, "SessionLocal", db_session_factory)
+    monkeypatch.setattr(
+        trip_tasks,
+        "enqueue_trip_task",
+        lambda _task_id: pytest.fail("Fresh broker message must not be redelivered."),
+    )
+
+    summary = trip_tasks.recover_incomplete_tasks(stale_after_seconds=60)
+
+    assert summary == {"dispatched": 0, "failed": 0, "cancelled": 0}
+
+
+def test_worker_recovery_skips_processing_task_with_live_lock(
+    db_session_factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_id = _create_task(db_session_factory)
+    with db_session_factory() as session:
+        task = get_task(session, task_id, for_update=True)
+        assert task is not None
+        task.status = "processing"
+        task.attempt_count = 1
+        task.updated_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        session.commit()
+
+    monkeypatch.setattr(trip_tasks, "SessionLocal", db_session_factory)
+    monkeypatch.setattr(trip_tasks, "_execution_lock_active", lambda _task_id: True)
+    monkeypatch.setattr(
+        trip_tasks,
+        "enqueue_trip_task",
+        lambda _task_id: pytest.fail("Live execution must not be redelivered."),
+    )
+
+    summary = trip_tasks.recover_incomplete_tasks(stale_after_seconds=60)
+
+    with db_session_factory() as session:
+        task = get_task(session, task_id)
+    assert summary == {"dispatched": 0, "failed": 0, "cancelled": 0}
+    assert task is not None and task.status == "processing"
+
+
+def test_worker_creates_cross_thread_renewable_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    lock_arguments: dict[str, object] = {}
+
+    class FakeLock:
+        def acquire(self, **_kwargs):
+            return True
+
+        def release(self):
+            return True
+
+    class FakeRedisClient:
+        def lock(self, _name, **kwargs):
+            lock_arguments.update(kwargs)
+            return FakeLock()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(
+        trip_tasks.Redis,
+        "from_url",
+        lambda *_args, **_kwargs: FakeRedisClient(),
+    )
+    monkeypatch.setattr(
+        trip_tasks,
+        "_execute_task",
+        lambda _self, task_id, _lock, _timeout: {"task_id": task_id, "status": "completed"},
+    )
+
+    result = trip_tasks.run_trip_planning.run("task_lock_test")
+
+    assert result["status"] == "completed"
+    assert lock_arguments["thread_local"] is False

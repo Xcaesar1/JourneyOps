@@ -21,6 +21,7 @@
 - 推荐客户端为 `POST` 提供 `Idempotency-Key`。
 - 未提供时，V2 使用规范化请求体摘要作为幂等键。
 - legacy API 未提供 Header 时保留“每次创建新任务”的旧行为。
+- 相同键和相同请求返回原任务；相同键但请求内容不同返回 `409 conflict`。
 - 数据库对 `trips.idempotency_key` 和 `(trip_id, version)` 施加唯一约束。
 
 ## Request Example

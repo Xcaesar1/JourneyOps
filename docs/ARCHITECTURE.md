@@ -71,12 +71,15 @@ sequenceDiagram
 
 ## Failure Policy
 
-- API failure after commit but before dispatch leaves an explicit failed task; the same request is
-  queryable and can be retried.
+- API failure before broker dispatch leaves an explicit failed task. If the broker accepted a message
+  but the API could not persist its broker id, the task remains queued for automatic recovery.
 - Worker uses late acknowledgement, worker-loss rejection, a visibility timeout longer than the hard
-  task limit, and a renewable Redis execution lock. Redelivery reuses the task row and immutable version.
-- Worker startup scans undispatched and stale processing tasks. Work below its attempt limit is
-  requeued; exhausted work becomes `failed` with `worker_lost`.
+  task limit, and a cross-thread renewable Redis execution lock. Redelivery reuses the task row and
+  immutable version.
+- Worker startup and its periodic recovery loop scan undispatched, stale queued/retrying, and stale
+  processing tasks. A row lock revalidates each candidate, a persisted recovery claim prevents parallel
+  dispatch, and a live execution lock protects slow work. Work below its attempt limit is requeued;
+  exhausted work becomes `failed` with `worker_lost`.
 - Cancellation is immediate for queued work and cooperative for an executing Planner.
 
 ## Health

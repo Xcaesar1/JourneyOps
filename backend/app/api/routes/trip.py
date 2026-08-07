@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ...db.models import TripTask
 from ...db.repository import (
+    IdempotencyConflictError,
     attach_celery_task,
     create_or_get_task,
     get_task,
@@ -51,11 +52,14 @@ def plan_trip(
         "request": request.model_dump(mode="json"),
     }
     key = _legacy_idempotency_key(payload, idempotency_key)
-    task, created = create_or_get_task(
-        session,
-        request_payload=payload,
-        idempotency_key=key,
-    )
+    try:
+        task, created = create_or_get_task(
+            session,
+            request_payload=payload,
+            idempotency_key=key,
+        )
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail="幂等键已用于不同的请求内容") from exc
     if created:
         task = _dispatch_or_fail(session, task)
     publish_task_event(task)
@@ -188,7 +192,6 @@ def health_check(session: DbSession) -> dict[str, str]:
 def _dispatch_or_fail(session: Session, task: TripTask) -> TripTask:
     try:
         broker_task_id = enqueue_trip_task(task.id)
-        return attach_celery_task(session, task.id, broker_task_id)
     except Exception as exc:
         failed = update_task_state(
             session,
@@ -202,6 +205,12 @@ def _dispatch_or_fail(session: Session, task: TripTask) -> TripTask:
         )
         publish_task_event(failed)
         raise HTTPException(status_code=503, detail="任务队列暂不可用") from exc
+
+    try:
+        return attach_celery_task(session, task.id, broker_task_id)
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(status_code=503, detail="任务已投递但确认失败，等待自动恢复") from exc
 
 
 def _legacy_event(task: TripTask) -> dict[str, Any]:
