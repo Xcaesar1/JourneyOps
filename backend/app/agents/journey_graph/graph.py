@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -22,6 +23,7 @@ def build_journey_graph(
     *,
     draft_generator: DraftGenerator = build_placeholder_plan,
     checkpointer: Any | None = None,
+    interrupt_before: Sequence[str] | None = None,
 ):
     builder = StateGraph(TripState)
     builder.add_node("normalize_request", normalize_request)
@@ -35,4 +37,7 @@ def build_journey_graph(
     builder.add_edge("draft", "validate_stub")
     builder.add_edge("validate_stub", "persist")
     builder.add_edge("persist", END)
-    return builder.compile(checkpointer=checkpointer)
+    return builder.compile(
+        checkpointer=checkpointer,
+        interrupt_before=list(interrupt_before) if interrupt_before else None,
+    )

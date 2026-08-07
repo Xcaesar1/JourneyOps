@@ -24,6 +24,7 @@ x-app-environment: &app-environment
   TRIP_TASK_LOCK_TIMEOUT: ${TRIP_TASK_LOCK_TIMEOUT:-90}
   TRIP_TASK_SOFT_TIME_LIMIT: ${TRIP_TASK_SOFT_TIME_LIMIT:-600}
   TRIP_TASK_HARD_TIME_LIMIT: ${TRIP_TASK_HARD_TIME_LIMIT:-660}
+  LANGGRAPH_STRICT_MSGPACK: ${LANGGRAPH_STRICT_MSGPACK:-true}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
 services:
@@ -57,7 +58,12 @@ services:
   migrate:
     image: journeyops-app:${IMAGE_TAG:-latest}
     build: *app-build
-    command: ["alembic", "-c", "backend/alembic.ini", "upgrade", "head"]
+    command:
+      - sh
+      - -c
+      - >-
+        alembic -c backend/alembic.ini upgrade head &&
+        python -m backend.scripts.setup_langgraph_checkpoints
     environment: *app-environment
     depends_on:
       postgres:

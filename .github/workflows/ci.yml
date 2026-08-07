@@ -53,11 +53,18 @@ jobs:
           DATABASE_URL: postgresql+psycopg://journeyops:journeyops_ci@localhost:5432/journeyops
         run: python -m alembic -c backend/alembic.ini upgrade head
 
+      - name: Initialize LangGraph checkpoints
+        env:
+          DATABASE_URL: postgresql+psycopg://journeyops:journeyops_ci@localhost:5432/journeyops
+          LANGGRAPH_STRICT_MSGPACK: "true"
+        run: python -m backend.scripts.setup_langgraph_checkpoints
+
       - name: Pytest
         env:
           PYTHONPATH: .
           TEST_DATABASE_URL: postgresql+psycopg://journeyops:journeyops_ci@localhost:5432/journeyops
           TEST_REDIS_URL: redis://localhost:6379/0
+          LANGGRAPH_STRICT_MSGPACK: "true"
         run: python -m pytest
 
   frontend:

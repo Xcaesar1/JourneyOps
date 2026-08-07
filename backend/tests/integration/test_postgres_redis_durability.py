@@ -6,6 +6,8 @@ import os
 from uuid import uuid4
 
 import pytest
+from backend.app.agents.journey_graph import build_journey_graph
+from backend.app.agents.journey_graph.checkpoint import open_postgres_checkpointer
 from backend.app.db.repository import create_or_get_task, get_task, save_trip_version
 from backend.app.db.session import build_engine
 from backend.app.domain.trip_models import TRIP_REQUEST_V2_EXAMPLE
@@ -86,3 +88,31 @@ def test_task_event_round_trip_uses_redis_pubsub() -> None:
 
     assert event is not None
     assert task.id in event["data"]
+
+
+def test_postgres_checkpoint_resumes_with_a_new_connection() -> None:
+    thread_id = f"checkpoint-integration-{uuid4()}"
+    config = {"configurable": {"thread_id": thread_id}}
+    initial_state = {
+        "trip_id": f"trip_{uuid4().hex}",
+        "task_id": f"task_{uuid4().hex}",
+        "request": TRIP_REQUEST_V2_EXAMPLE,
+    }
+
+    with open_postgres_checkpointer(DATABASE_URL, setup=True) as first_saver:
+        interrupted_graph = build_journey_graph(
+            checkpointer=first_saver,
+            interrupt_before=["persist"],
+        )
+        interrupted = interrupted_graph.invoke(initial_state, config)
+        snapshot = interrupted_graph.get_state(config)
+        assert "final_plan" not in interrupted
+        assert snapshot.next == ("persist",)
+
+    with open_postgres_checkpointer(DATABASE_URL) as second_saver:
+        resumed_graph = build_journey_graph(checkpointer=second_saver)
+        completed = resumed_graph.invoke(None, config)
+        snapshot = resumed_graph.get_state(config)
+        assert completed["final_plan"].schema_version == "2.0"
+        assert snapshot.next == ()
+        second_saver.delete_thread(thread_id)
