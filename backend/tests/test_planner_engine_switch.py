@@ -107,6 +107,36 @@ def test_comparison_failure_is_redacted_and_does_not_fail_primary(
     assert sensitive_error not in str(result.comparison.client_payload)
 
 
+@pytest.mark.parametrize(
+    ("message", "secret"),
+    [
+        ("Authorization: Bearer sk-fake-provider-token-123", "sk-fake-provider-token-123"),
+        ("upstream rejected api_key=fake-query-secret", "fake-query-secret"),
+        ("request to https://service-user:fake-password@example.test failed", "fake-password"),
+        ('provider payload {"auth_token":"fake-json-token"}', "fake-json-token"),
+    ],
+)
+def test_worker_error_message_redacts_credentials(message: str, secret: str) -> None:
+    safe_message = trip_tasks._safe_error_message(RuntimeError(message))
+
+    assert secret not in safe_message
+    assert "[REDACTED]" in safe_message
+
+
+def test_worker_error_message_redacts_configured_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured_secret = "configured-fake-api-key-value"
+    monkeypatch.setattr(settings, "openai_api_key", configured_secret)
+
+    safe_message = trip_tasks._safe_error_message(
+        RuntimeError(f"provider echoed opaque credential {configured_secret}")
+    )
+
+    assert configured_secret not in safe_message
+    assert safe_message == "provider echoed opaque credential [REDACTED]"
+
+
 def test_primary_failure_cancels_comparison_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "planner_engine", "legacy")
     monkeypatch.setattr(settings, "planner_compare_engines", True)

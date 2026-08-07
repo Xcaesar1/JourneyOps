@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -37,6 +38,15 @@ TASK_NAME = "journeyops.plan_trip"
 _RECOVERY_STOP = threading.Event()
 _RECOVERY_THREAD: threading.Thread | None = None
 _RECOVERY_THREAD_GUARD = threading.Lock()
+_REDACTED = "[REDACTED]"
+_AUTH_VALUE_PATTERN = re.compile(r"(?i)\b(Bearer|Basic)\s+[^\s,;]+")
+_SECRET_ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)(?<![\w-])([\"']?(?:api[_-]?key|authorization|auth[_-]?token|"
+    r"access[_-]?token|secret|password|passwd|cookie)[\"']?)(\s*[:=]\s*)"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)"
+)
+_URL_CREDENTIAL_PATTERN = re.compile(r"(?i)(https?://)[^\s/@:]+:[^\s/@]+@")
+_PROVIDER_TOKEN_PATTERN = re.compile(r"(?i)\bsk-[a-z0-9_-]{8,}\b")
 
 
 class TaskCancelled(Exception):
@@ -605,8 +615,24 @@ def _to_legacy_request(payload: dict[str, Any]) -> TripRequest:
 
 
 def _safe_error_message(exc: Exception) -> str:
-    text = str(exc).strip()
-    return (text or type(exc).__name__)[:1000]
+    text = str(exc).strip() or type(exc).__name__
+    settings = get_settings()
+    known_secrets = {
+        settings.openai_api_key,
+        settings.google_maps_api_key,
+        settings.xhs_cookie,
+        os.getenv("LLM_API_KEY", ""),
+        os.getenv("OPENAI_API_KEY", ""),
+    }
+    for secret in sorted(known_secrets, key=len, reverse=True):
+        if len(secret) >= 8:
+            text = text.replace(secret, _REDACTED)
+
+    text = _URL_CREDENTIAL_PATTERN.sub(rf"\1{_REDACTED}@", text)
+    text = _AUTH_VALUE_PATTERN.sub(rf"\1 {_REDACTED}", text)
+    text = _SECRET_ASSIGNMENT_PATTERN.sub(rf"\1\2{_REDACTED}", text)
+    text = _PROVIDER_TOKEN_PATTERN.sub(_REDACTED, text)
+    return text[:1000]
 
 
 def _renew_lock(lock: Any, lock_timeout: int, stop: threading.Event, task_id: str) -> None:
