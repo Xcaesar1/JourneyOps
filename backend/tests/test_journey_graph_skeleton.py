@@ -7,6 +7,7 @@ from backend.app.agents.journey_graph import build_journey_graph
 from backend.app.agents.journey_graph.nodes import (
     build_placeholder_plan,
     collect,
+    make_draft_node,
     normalize_request,
     persist,
     validate_stub,
@@ -25,6 +26,55 @@ def _initial_state() -> dict:
         "task_id": "task_graph_test",
         "request": TRIP_REQUEST_V2_EXAMPLE,
     }
+
+
+def _normalized_state() -> dict:
+    initial = _initial_state()
+    return {**initial, **normalize_request(initial)}
+
+
+def test_normalize_request_node_returns_typed_request() -> None:
+    result = normalize_request(_initial_state())
+
+    assert isinstance(result["request"], TripRequestV2)
+    assert result["metrics"] == {"normalized": True}
+
+
+def test_collect_node_returns_structured_provider_boundaries() -> None:
+    result = collect(_normalized_state())
+
+    assert result["sources"] == []
+    assert result["poi_candidates"] == {"Tokyo": [], "Kyoto": []}
+    assert result["weather"] == {"Tokyo": [], "Kyoto": []}
+    assert result["metrics"]["collected"] is True
+
+
+def test_draft_node_returns_typed_plan() -> None:
+    result = make_draft_node(build_placeholder_plan)(_normalized_state())
+
+    assert isinstance(result["draft_plan"], TripPlanV2)
+    assert result["metrics"]["drafted"] is True
+
+
+def test_validate_stub_node_returns_typed_report() -> None:
+    state = _normalized_state()
+    state["draft_plan"] = build_placeholder_plan(state)
+
+    result = validate_stub(state)
+
+    assert result["validation_report"].has_critical is False
+    assert result["metrics"]["validated"] is True
+
+
+def test_persist_node_finalizes_valid_typed_plan() -> None:
+    state = _normalized_state()
+    state["draft_plan"] = build_placeholder_plan(state)
+    state.update(validate_stub(state))
+
+    result = persist(state)
+
+    assert result["final_plan"] is state["draft_plan"]
+    assert result["metrics"]["persisted"] is True
 
 
 def test_journey_graph_nodes_are_independently_executable() -> None:
