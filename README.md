@@ -10,9 +10,10 @@
   <img src="https://img.shields.io/badge/FastAPI-0.100+-teal.svg">
 </p>
 
-> JourneyOps 二次开发状态：阶段 2 已将旅行规划任务迁移到 PostgreSQL、Redis 和
-> Celery。旧 `/api/trip/*` 契约继续可用，但其任务事实源已不再是进程内字典或 JSON
-> 文件。当前架构、部署和回滚说明见 `docs/ARCHITECTURE.md` 与 `docs/DEPLOYMENT.md`。
+> JourneyOps 二次开发状态：阶段 3 已引入可恢复 JourneyGraph、PostgreSQL Checkpointer、
+> `TripPlanV2` 原生结构化输出、legacy 前端 Adapter 和双引擎 Feature Flags。旧
+> `/api/trip/*` 契约继续可用。当前架构、验收、部署和回滚说明见
+> `docs/ARCHITECTURE.md`、`docs/PHASE_3_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。
 
 <div align="center">
 
@@ -56,7 +57,9 @@
 
 ## 系统架构
 
-本项目采用标准的前后端分离架构，分为前端 Vue 交互层、后端 FastAPI 服务层和 LLM/Agents 的智能推理层。
+本项目采用前后端分离和持久任务架构，分为 Vue、FastAPI、PostgreSQL、Redis/Celery 和
+可切换的 legacy/JourneyGraph 推理层。以下图示保留 upstream legacy Planner 内部流程；当前
+生产候选架构以 `docs/ARCHITECTURE.md` 为准。
 
 ```mermaid
 sequenceDiagram

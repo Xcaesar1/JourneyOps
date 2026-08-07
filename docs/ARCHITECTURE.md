@@ -1,6 +1,6 @@
 # JourneyOps Architecture
 
-## Phase 2 Runtime
+## Phase 3 Runtime
 
 ```mermaid
 flowchart LR
@@ -11,7 +11,11 @@ flowchart LR
     Broker[("Redis DB 1\nCelery broker")]
     Events[("Redis DB 0\nPub/Sub events")]
     Worker["Celery worker"]
-    Planner["Legacy Trip Planner"]
+    Selector{"Planner engine flags"}
+    Legacy["Legacy Trip Planner"]
+    Graph["JourneyGraph typed workflow"]
+    Checkpoints[("PostgreSQL checkpoints")]
+    Adapter["TripPlanV2 to legacy Adapter"]
     Providers["LLM, maps, weather, XHS"]
 
     Client -->|"legacy or v2 POST"| API1
@@ -20,9 +24,15 @@ flowchart LR
     API1 -->|"dispatch after commit"| Broker
     Broker --> Worker
     Worker -->|"load request and state"| DB
-    Worker --> Planner
-    Planner --> Providers
-    Planner --> Worker
+    Worker --> Selector
+    Selector --> Legacy
+    Selector --> Graph
+    Legacy --> Providers
+    Legacy --> Worker
+    Graph --> Providers
+    Graph <--> Checkpoints
+    Graph --> Adapter
+    Adapter --> Worker
     Worker -->|"progress + immutable version"| DB
     Worker -->|"best-effort snapshot"| Events
     Events -->|"WebSocket trigger"| API1
@@ -34,7 +44,10 @@ flowchart LR
 
 - `trips` stores the canonical request and idempotency digest.
 - `trip_tasks` stores execution status, progress, attempts, cancellation and terminal errors.
-- `trip_versions` stores immutable outputs with unique `(trip_id, version)`.
+- `trip_versions` stores immutable outputs with unique `(trip_id, version)`. Phase 3 adds planner engine,
+  primary/comparison role, schema version and optional native `TripPlanV2` payload metadata.
+- LangGraph checkpoint tables store resumable typed graph state by durable task id. Their serializer rejects
+  types outside the explicit allowlist when `LANGGRAPH_STRICT_MSGPACK=true`.
 - Redis broker messages and Pub/Sub events may be lost or duplicated; database constraints and Worker
   transitions make redelivery safe.
 - `backend/data/trip_tasks/*.json`, process dictionaries and process-local WebSocket queues are no
@@ -49,7 +62,8 @@ sequenceDiagram
     participant P as PostgreSQL
     participant R as Redis
     participant W as Celery Worker
-    participant L as Legacy Planner
+    participant S as Engine Selector
+    participant G as JourneyGraph or Legacy Planner
 
     C->>A: POST trip request
     A->>P: INSERT trip and task
@@ -58,9 +72,10 @@ sequenceDiagram
     A-->>C: 202 or legacy receipt
     R->>W: deliver task_id
     W->>P: lock/read task and increment attempt
-    W->>L: plan_trip(request, progress_callback)
+    W->>S: read PLANNER_ENGINE and comparison flag
+    S->>G: run primary and optional shadow engine
     loop planner progress
-        L->>W: stage, message, progress
+        G->>W: stage, message, progress
         W->>P: COMMIT progress
         W->>R: PUBLISH snapshot
         R-->>A: Pub/Sub event
@@ -68,6 +83,24 @@ sequenceDiagram
     end
     W->>P: INSERT trip version and complete task
 ```
+
+## JourneyGraph
+
+The phase 3 graph is deliberately small and recoverable:
+
+```mermaid
+flowchart LR
+    Start([START]) --> Normalize[normalize_request]
+    Normalize --> Collect[collect]
+    Collect --> Draft[draft]
+    Draft --> Validate[validate_stub]
+    Validate --> Persist[persist]
+    Persist --> End([END])
+```
+
+`draft` uses provider-native JSON output and validates it directly as `TripPlanV2`. It does not call legacy
+string sanitizers, bracket completion or LLM JSON repair. The Adapter converts the validated native plan to
+the existing `TripPlanResponse` shape while the native payload remains available in `trip_versions`.
 
 ## Failure Policy
 
@@ -81,6 +114,8 @@ sequenceDiagram
   dispatch, and a live execution lock protects slow work. Work below its attempt limit is requeued;
   exhausted work becomes `failed` with `worker_lost`.
 - Cancellation is immediate for queued work and cooperative for an executing Planner.
+- Shadow comparison errors are redacted and do not fail a successful primary run. A primary failure cancels
+  outstanding comparison work.
 
 ## Health
 

@@ -1,7 +1,7 @@
 # Deployment And Rollback
 
-本文件描述阶段 2 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
-Oracle staging，使用独立端口和独立 named volumes。
+本文件描述阶段 3 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
+Oracle staging，使用独立端口、独立 named volumes 和可回滚的镜像标签。
 
 ## Staging Deploy
 
@@ -15,6 +15,19 @@ chmod 0600 .env.staging
 
 只在未跟踪的 `.env.staging` 中填写 Secret。`POSTGRES_PASSWORD` 使用随机、URL-safe 字符；
 不得打印该文件。
+
+阶段 3 部署至少显式设置以下非 Secret flags：
+
+```dotenv
+IMAGE_TAG=phase3-<short-commit>
+PLANNER_ENGINE=legacy
+PLANNER_COMPARE_ENGINES=false
+LEGACY_JSON_REPAIR=true
+LANGGRAPH_STRICT_MSGPACK=true
+```
+
+先以 legacy 默认值部署。只有 staging 健康、迁移和备份通过后，才可临时切换
+`PLANNER_ENGINE=journey_graph` 做验收。comparison 默认关闭，避免双倍外部调用成本。
 
 ```bash
 docker compose \
@@ -80,11 +93,11 @@ sudo cat /var/backups/tripstar/<STAMP>/journeyops-staging.pgdump \
 
 ## Code Rollback
 
-阶段 2 使用独立 Git commit。优先创建审计可见的 revert，不改写历史：
+阶段 3 使用一组可独立回滚的 Git commits。优先创建审计可见的 revert，不改写历史：
 
 ```bash
 git status --short --branch
-git revert <PHASE_2_COMMIT>
+git revert <BAD_PHASE_3_COMMIT>
 docker compose \
   --env-file .env.staging \
   -f docker-compose.yaml \
@@ -93,12 +106,12 @@ docker compose \
 ```
 
 代码回滚不会自动删除 PostgreSQL/Redis volumes。只回滚应用时保留数据卷；确认备份可恢复且
-明确不再需要阶段 2 数据后，才可人工执行 Alembic downgrade。不得把 `docker compose down -v`
+明确不再需要阶段 3 数据后，才可人工执行 Alembic downgrade。不得把 `docker compose down -v`
 作为常规回滚命令。
 
 ## Migration Rollback
 
-首次迁移只创建三张新表，对旧 JSON 数据无写入。若必须回退 schema：
+阶段 3 revision `20260808_02` 只为 `trip_versions` 增加四个兼容列。若必须回退到阶段 2 schema：
 
 ```bash
 docker compose \
@@ -110,17 +123,17 @@ docker compose \
   --env-file .env.staging \
   -f docker-compose.yaml \
   -f docker-compose.staging.yaml \
-  run --rm migrate alembic -c backend/alembic.ini downgrade base
+  run --rm migrate alembic -c backend/alembic.ini downgrade 20260807_01
 ```
 
-该命令会删除 `trips`、`trip_tasks`、`trip_versions`，属于破坏性操作；执行前必须有已校验
-`pg_dump`、维护窗口和人工批准。
+该命令会删除阶段 3 版本元数据列，可能丢失 native payload 和对比证据。执行前必须有已校验
+`pg_dump`、维护窗口和人工批准。LangGraph checkpoint tables 不由 Alembic revision 管理，默认保留。
 
 ## Production Promotion Gate
 
-阶段 2 不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
+阶段 3 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
 可重复执行且已在 staging 验证的数据导入方案，并核对任务数、终态数和历史结果。该迁移未完成前，
-不得将阶段 2 栈提升为 production，也不得删除旧 JSON volume。
+不得将阶段 3 栈提升为 production，也不得删除旧 JSON volume。
 
 ## Executed Backup Evidence
 
@@ -128,3 +141,12 @@ docker compose \
 - Format: PostgreSQL custom dump plus SHA-256 manifest
 - Permissions: backup directory `0700`, files `0600`
 - Verification: `sha256sum -c` passed
+
+## Phase 3 Executed Evidence
+
+- 2026-08-08 pre-deploy backup: `/var/backups/tripstar/20260807T181543Z-phase3-predeploy`
+- Deployed source: `909e8ba`; image: `journeyops-app:phase3-909e8ba`
+- Alembic: `20260808_02`; migration container exit: `0`
+- Staging graph task completed with native schema `2.0`, legacy client Adapter and 7 checkpoint rows
+- Worker restored to `PLANNER_ENGINE=legacy`; production `/health/ready` remained ready
+- Full matrix and residual risks: `docs/PHASE_3_ACCEPTANCE.md`

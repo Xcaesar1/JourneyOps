@@ -1,7 +1,12 @@
 # API v2 Durable Tasks
 
-阶段 2 将 `/api/v2` 从 mock 升级为 PostgreSQL 持久任务 API。API 先提交数据库事务，
-再投递 Celery；Redis 只承载 broker 和 Pub/Sub 事件，不是任务事实源。
+阶段 2 将 `/api/v2` 从 mock 升级为 PostgreSQL 持久任务 API。阶段 3 在 Worker 内增加可切换的
+JourneyGraph，但不改变客户端契约。API 先提交数据库事务，再投递 Celery；Redis 只承载 broker
+和 Pub/Sub 事件，不是任务事实源。
+
+JourneyGraph 原生输出按 `TripPlanV2` 校验并保存在 `trip_versions.native_payload`，客户端 `result`
+继续返回现有前端可消费的 legacy `TripPlanResponse`。Planner engine 由服务端 Feature Flag 选择，
+不是请求参数。
 
 ## Endpoints
 
@@ -81,7 +86,8 @@
 
 ## Error Contract
 
-V2 保持统一 envelope，内部异常、数据库 URL、Redis URL、Cookie 和 API Key 不进入响应。
+V2 保持统一 envelope，内部异常、数据库 URL、Redis URL、Cookie 和 API Key 不进入响应。Worker
+持久化外部供应商异常前会脱敏已配置凭据、认证头、敏感键值和带凭据 URL。
 
 ```json
 {
