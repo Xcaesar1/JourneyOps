@@ -2,4 +2,5 @@
 
 from .error_models import ErrorBodyV2, ErrorDetailV2, ErrorEnvelopeV2
 from .task_models import TripTaskRecordV2
-from .trip_models import CityStayV2, TripRequestV2
+from .trip_models import CityStayV2, TripPlanV2, TripRequestV2
+from .validation_models import ValidationIssueV2, ValidationReportV2

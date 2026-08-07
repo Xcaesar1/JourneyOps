@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, time, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -121,4 +121,134 @@ class TripRequestV2(BaseModel):
         if self.daily_end_time <= self.daily_start_time:
             raise ValueError("daily_end_time must be after daily_start_time")
 
+        return self
+
+
+class LocationV2(BaseModel):
+    """Geographic coordinates returned by structured planning."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    longitude: float = Field(..., ge=-180, le=180)
+    latitude: float = Field(..., ge=-90, le=90)
+
+
+class AttractionV2(BaseModel):
+    """A typed attraction compatible with the existing result view."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(..., min_length=1, max_length=200)
+    address: str = Field(default="", max_length=500)
+    location: LocationV2 | None = None
+    visit_duration: int = Field(default=60, ge=0, le=1440)
+    description: str = Field(default="", max_length=2000)
+    category: str = Field(default="attraction", max_length=120)
+    ticket_price: int = Field(default=0, ge=0)
+    reservation_required: bool = False
+    reservation_tips: str = Field(default="", max_length=1000)
+
+
+class MealV2(BaseModel):
+    """A typed meal recommendation."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    type: Literal["breakfast", "lunch", "dinner", "snack"]
+    name: str = Field(..., min_length=1, max_length=200)
+    address: str | None = Field(default=None, max_length=500)
+    location: LocationV2 | None = None
+    description: str | None = Field(default=None, max_length=1000)
+    estimated_cost: int = Field(default=0, ge=0)
+
+
+class HotelV2(BaseModel):
+    """A typed accommodation recommendation."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    name: str = Field(..., min_length=1, max_length=200)
+    address: str = Field(default="", max_length=500)
+    location: LocationV2 | None = None
+    price_range: str = Field(default="", max_length=120)
+    rating: str = Field(default="", max_length=32)
+    distance: str = Field(default="", max_length=120)
+    type: str = Field(default="", max_length=120)
+    estimated_cost: int = Field(default=0, ge=0)
+
+
+class DayPlanV2(BaseModel):
+    """One typed day in a structured trip plan."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    date: date
+    day_index: int = Field(..., ge=0, le=29)
+    city: str = Field(..., min_length=1, max_length=120)
+    is_transfer_day: bool = False
+    transfer_info: str = Field(default="", max_length=1000)
+    description: str = Field(..., min_length=1, max_length=2000)
+    transportation: str = Field(default="public transit", max_length=200)
+    accommodation: str = Field(default="", max_length=200)
+    hotel: HotelV2 | None = None
+    attractions: list[AttractionV2] = Field(default_factory=list)
+    meals: list[MealV2] = Field(default_factory=list)
+
+
+class WeatherInfoV2(BaseModel):
+    """Structured daily weather without free-form numeric fields."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    date: date
+    city: str = Field(..., min_length=1, max_length=120)
+    day_weather: str = Field(default="", max_length=120)
+    night_weather: str = Field(default="", max_length=120)
+    day_temp: int = Field(default=0, ge=-100, le=100)
+    night_temp: int = Field(default=0, ge=-100, le=100)
+    wind_direction: str = Field(default="", max_length=120)
+    wind_power: str = Field(default="", max_length=120)
+
+
+class BudgetV2(BaseModel):
+    """Typed budget fields; deterministic recalculation arrives in Phase 5."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    total_attractions: int = Field(default=0, ge=0)
+    total_hotels: int = Field(default=0, ge=0)
+    total_meals: int = Field(default=0, ge=0)
+    total_transportation: int = Field(default=0, ge=0)
+    total_inter_city_transport: int = Field(default=0, ge=0)
+    total: int = Field(default=0, ge=0)
+
+
+class TripPlanV2(BaseModel):
+    """Primary structured-output schema for the JourneyGraph planner."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    schema_version: Literal["2.0"] = "2.0"
+    city: str = Field(..., min_length=1, max_length=120)
+    cities: list[str] = Field(..., min_length=1)
+    start_date: date
+    end_date: date
+    days: list[DayPlanV2] = Field(..., min_length=1, max_length=30)
+    weather_info: list[WeatherInfoV2] = Field(default_factory=list)
+    overall_suggestions: str = Field(..., min_length=1, max_length=4000)
+    budget: BudgetV2 | None = None
+
+    @model_validator(mode="after")
+    def validate_plan_window(self) -> TripPlanV2:
+        if self.end_date < self.start_date:
+            raise ValueError("end_date must be on or after start_date")
+        expected_days = (self.end_date - self.start_date).days + 1
+        if len(self.days) != expected_days:
+            raise ValueError("days must cover the inclusive date range")
+        if [day.day_index for day in self.days] != list(range(expected_days)):
+            raise ValueError("day_index values must be contiguous and zero-based")
+        if [day.date for day in self.days] != [
+            self.start_date + timedelta(days=offset) for offset in range(expected_days)
+        ]:
+            raise ValueError("day dates must be contiguous across the requested window")
         return self
