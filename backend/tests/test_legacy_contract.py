@@ -130,3 +130,12 @@ def test_legacy_reused_idempotency_key_rejects_different_payload(client) -> None
     assert first.status_code == 200
     assert second.status_code == 409
     assert second.json() == {"detail": "幂等键已用于不同的请求内容"}
+
+
+def test_original_planner_import_path_remains_compatible() -> None:
+    from backend.app.agents import trip_planner_agent as compatibility_module
+    from backend.app.agents.legacy import trip_planner_agent as legacy_module
+
+    assert compatibility_module.MultiAgentTripPlanner is legacy_module.MultiAgentTripPlanner
+    assert compatibility_module.get_trip_planner_agent is legacy_module.get_trip_planner_agent
+    assert compatibility_module.reset_trip_planner_agent is legacy_module.reset_trip_planner_agent
