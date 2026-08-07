@@ -180,6 +180,10 @@ def save_trip_version(
     trip_id: str,
     version: int,
     payload: dict[str, Any],
+    planner_engine: str = "legacy",
+    version_role: str = "primary",
+    schema_version: str = "legacy",
+    native_payload: dict[str, Any] | None = None,
 ) -> TripVersion:
     """Insert one immutable version, returning the existing row on redelivery."""
     existing = session.scalar(
@@ -191,7 +195,15 @@ def save_trip_version(
     if existing is not None:
         return existing
 
-    record = TripVersion(trip_id=trip_id, version=version, payload=payload)
+    record = TripVersion(
+        trip_id=trip_id,
+        version=version,
+        planner_engine=planner_engine,
+        version_role=version_role,
+        schema_version=schema_version,
+        payload=payload,
+        native_payload=native_payload,
+    )
     session.add(record)
     try:
         session.commit()

@@ -58,7 +58,7 @@ DbSession = Annotated[Session, Depends(get_db_session)]
     response_model=TripTaskRecordV2,
     summary="Submit a durable v2 trip request",
     description=(
-        "Persist the canonical request and task in PostgreSQL before dispatching the legacy "
+        "Persist the canonical request and task in PostgreSQL before dispatching the configured "
         "planner through Celery. Repeated requests are deduplicated by Idempotency-Key or payload."
     ),
     responses={

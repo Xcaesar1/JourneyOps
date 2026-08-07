@@ -38,7 +38,7 @@ DbSession = Annotated[Session, Depends(get_db_session)]
     "/plan",
     summary="提交旅行规划任务",
     description=(
-        "保留原响应契约，任务先写 PostgreSQL，再由 Celery Worker 调用 legacy Planner。"
+        "保留原响应契约，任务先写 PostgreSQL，再由 Celery Worker 调用已配置的 Planner。"
     ),
 )
 def plan_trip(

@@ -3,7 +3,7 @@
 import os
 import json
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any, Dict, List, Literal
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
 from dotenv import load_dotenv
@@ -58,6 +58,8 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("OPENAI_MODEL", "LLM_MODEL_ID"),
     )
     legacy_json_repair: bool = True
+    planner_engine: Literal["legacy", "journey_graph"] = "legacy"
+    planner_compare_engines: bool = False
 
     # 日志配置
     log_level: str = "INFO"

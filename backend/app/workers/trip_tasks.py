@@ -1,4 +1,4 @@
-"""Durable Celery execution for the unchanged legacy trip planner."""
+"""Durable Celery execution for feature-flagged JourneyOps planners."""
 
 from __future__ import annotations
 
@@ -6,13 +6,15 @@ import asyncio
 import logging
 import os
 import threading
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 from uuid import uuid4
 
 from celery import signals
 from celery.exceptions import Retry
 from redis import Redis
 
+from ..config import get_settings
 from ..db.repository import (
     FINAL_TASK_STATUSES,
     attach_celery_task,
@@ -25,6 +27,7 @@ from ..db.repository import (
     update_task_state,
 )
 from ..db.session import SessionLocal
+from ..domain.trip_models import TripPlanV2, TripRequestV2
 from ..models.schemas import CityStay, TripPlanResponse, TripRequest
 from ..services.task_events import publish_task_event, redis_url, task_snapshot
 from .celery_app import celery_app
@@ -38,6 +41,27 @@ _RECOVERY_THREAD_GUARD = threading.Lock()
 
 class TaskCancelled(Exception):
     """Raised when a persisted cooperative cancellation is observed."""
+
+
+PlannerEngine = Literal["legacy", "journey_graph"]
+
+
+@dataclass(frozen=True)
+class PlannerExecution:
+    """One planner output plus its persistence metadata."""
+
+    engine: PlannerEngine
+    client_payload: dict[str, Any]
+    schema_version: str
+    native_payload: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class PlannerRunSet:
+    """Primary output and optional shadow-comparison output."""
+
+    primary: PlannerExecution
+    comparison: PlannerExecution | None = None
 
 
 def enqueue_trip_task(task_id: str) -> str:
@@ -271,18 +295,41 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
             LOGGER.warning("Unable to extend task lock for %s", task_id)
 
     try:
-        result_payload = asyncio.run(
-            _run_legacy_planner(task_id, request_payload, progress_callback)
+        planner_runs = asyncio.run(
+            _run_configured_planners(
+                task_id,
+                trip_id,
+                request_payload,
+                progress_callback,
+            )
         )
+        result_payload = planner_runs.primary.client_payload
         with SessionLocal() as session:
             current = get_task(session, task_id)
             if current is None or current.cancel_requested:
                 raise TaskCancelled(task_id)
+            if planner_runs.comparison is not None:
+                comparison = planner_runs.comparison
+                save_trip_version(
+                    session,
+                    trip_id=trip_id,
+                    version=2,
+                    payload=comparison.client_payload,
+                    planner_engine=comparison.engine,
+                    version_role="comparison",
+                    schema_version=comparison.schema_version,
+                    native_payload=comparison.native_payload,
+                )
+            primary = planner_runs.primary
             save_trip_version(
                 session,
                 trip_id=trip_id,
                 version=1,
                 payload=result_payload,
+                planner_engine=primary.engine,
+                version_role="primary",
+                schema_version=primary.schema_version,
+                native_payload=primary.native_payload,
             )
             completed = update_task_state(
                 session,
@@ -345,6 +392,90 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
             return task_snapshot(failed)
 
 
+async def _run_configured_planners(
+    task_id: str,
+    trip_id: str,
+    payload: dict[str, Any],
+    progress_callback: Any,
+) -> PlannerRunSet:
+    settings = get_settings()
+    primary_engine: PlannerEngine = settings.planner_engine
+    primary_call = _run_engine(
+        primary_engine,
+        task_id,
+        trip_id,
+        payload,
+        progress_callback,
+    )
+    if not settings.planner_compare_engines:
+        return PlannerRunSet(primary=await primary_call)
+
+    comparison_engine: PlannerEngine = (
+        "journey_graph" if primary_engine == "legacy" else "legacy"
+    )
+
+    async def comparison_progress(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    primary_task = asyncio.create_task(primary_call)
+    comparison_task = asyncio.create_task(
+        _run_engine(
+            comparison_engine,
+            task_id,
+            trip_id,
+            payload,
+            comparison_progress,
+        )
+    )
+    try:
+        primary_result = await primary_task
+    except BaseException:
+        comparison_task.cancel()
+        await asyncio.gather(comparison_task, return_exceptions=True)
+        raise
+
+    try:
+        comparison_result = await comparison_task
+    except asyncio.CancelledError:
+        raise
+    except Exception as comparison_error:
+        comparison = PlannerExecution(
+            engine=comparison_engine,
+            client_payload={
+                "success": False,
+                "message": "Comparison planner failed.",
+                "plan_id": task_id,
+                "error_code": type(comparison_error).__name__,
+            },
+            schema_version="error",
+        )
+    else:
+        comparison = comparison_result
+    return PlannerRunSet(primary=primary_result, comparison=comparison)
+
+
+async def _run_engine(
+    engine: PlannerEngine,
+    task_id: str,
+    trip_id: str,
+    payload: dict[str, Any],
+    progress_callback: Any,
+) -> PlannerExecution:
+    if engine == "legacy":
+        result = await _run_legacy_planner(task_id, payload, progress_callback)
+        return PlannerExecution(
+            engine="legacy",
+            client_payload=result,
+            schema_version="legacy",
+        )
+    return await _run_journey_graph_planner(
+        task_id,
+        trip_id,
+        payload,
+        progress_callback,
+    )
+
+
 async def _run_legacy_planner(
     task_id: str,
     payload: dict[str, Any],
@@ -371,6 +502,84 @@ async def _run_legacy_planner(
         graph_data=graph_data,
     )
     return result.model_dump(mode="json")
+
+
+async def _run_journey_graph_planner(
+    task_id: str,
+    trip_id: str,
+    payload: dict[str, Any],
+    progress_callback: Any,
+) -> PlannerExecution:
+    """Run or resume the typed graph and adapt its result for existing clients."""
+    from ..adapters import trip_plan_v2_to_legacy
+    from ..agents.journey_graph import build_journey_graph, build_structured_plan_generator
+    from ..agents.journey_graph.checkpoint import open_postgres_checkpointer
+    from ..services.knowledge_graph_service import build_knowledge_graph
+
+    request = _to_v2_request(payload)
+    await progress_callback("planning", "JourneyGraph structured planning started.", 50)
+
+    def invoke_graph() -> TripPlanV2:
+        config = {"configurable": {"thread_id": task_id}}
+        initial_state = {
+            "trip_id": trip_id,
+            "task_id": task_id,
+            "request": request,
+        }
+        with open_postgres_checkpointer() as checkpointer:
+            graph = build_journey_graph(
+                draft_generator=build_structured_plan_generator(),
+                checkpointer=checkpointer,
+            )
+            snapshot = graph.get_state(config)
+            if snapshot.values.get("final_plan") is not None and not snapshot.next:
+                state = snapshot.values
+            else:
+                graph_input = None if snapshot.next else initial_state
+                state = graph.invoke(graph_input, config)
+        return TripPlanV2.model_validate(state["final_plan"])
+
+    native_plan = await asyncio.to_thread(invoke_graph)
+    adapted_plan = trip_plan_v2_to_legacy(native_plan)
+    await progress_callback("graph_building", "Building knowledge graph.", 95)
+    graph_data = build_knowledge_graph(adapted_plan, language=request.language)
+    client_response = TripPlanResponse(
+        success=True,
+        message="Trip plan generated successfully.",
+        plan_id=task_id,
+        data=adapted_plan,
+        graph_data=graph_data,
+    ).model_dump(mode="json")
+    return PlannerExecution(
+        engine="journey_graph",
+        client_payload=client_response,
+        schema_version=native_plan.schema_version,
+        native_payload=native_plan.model_dump(mode="json"),
+    )
+
+
+def _to_v2_request(payload: dict[str, Any]) -> TripRequestV2:
+    if payload.get("contract") != "legacy":
+        return TripRequestV2.model_validate(payload)
+
+    legacy = TripRequest.model_validate(payload["request"])
+    destinations = [
+        {"city": destination.city, "days": destination.days}
+        for destination in legacy.cities
+    ]
+    return TripRequestV2(
+        origin=legacy.city,
+        destinations=destinations,
+        start_date=legacy.start_date,
+        end_date=legacy.end_date,
+        travel_days=legacy.travel_days,
+        transport_preferences=[legacy.transportation] if legacy.transportation else [],
+        accommodation_preference=legacy.accommodation,
+        interests=legacy.preferences,
+        free_text_input=legacy.free_text_input or "",
+        language=legacy.language or "zh",
+        timezone="Asia/Shanghai",
+    )
 
 
 def _to_legacy_request(payload: dict[str, Any]) -> TripRequest:

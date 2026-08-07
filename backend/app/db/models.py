@@ -91,7 +91,17 @@ class TripVersion(Base):
         ForeignKey("trips.id", ondelete="CASCADE"), nullable=False, index=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
+    planner_engine: Mapped[str] = mapped_column(
+        String(32), default="legacy", server_default="legacy", nullable=False
+    )
+    version_role: Mapped[str] = mapped_column(
+        String(32), default="primary", server_default="primary", nullable=False
+    )
+    schema_version: Mapped[str] = mapped_column(
+        String(16), default="legacy", server_default="legacy", nullable=False
+    )
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    native_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     trip: Mapped[Trip] = relationship(back_populates="versions")
