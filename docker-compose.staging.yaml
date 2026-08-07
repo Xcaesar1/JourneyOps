@@ -1,6 +1,18 @@
 name: tripstar-staging
 
 services:
+  postgres:
+    container_name: journeyops-postgres-staging
+
+  redis:
+    container_name: journeyops-redis-staging
+
+  migrate:
+    container_name: journeyops-migrate-staging
+
+  worker:
+    container_name: journeyops-worker-staging
+
   trip-planner:
     container_name: helloagents-trip-planner-staging
     ports: !override
@@ -11,3 +23,7 @@ services:
 volumes:
   trip_data:
     name: tripstar_staging_data
+  postgres_data:
+    name: journeyops_staging_postgres_data
+  redis_data:
+    name: journeyops_staging_redis_data

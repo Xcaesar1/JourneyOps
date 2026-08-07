@@ -10,6 +10,10 @@
   <img src="https://img.shields.io/badge/FastAPI-0.100+-teal.svg">
 </p>
 
+> JourneyOps 二次开发状态：阶段 2 已将旅行规划任务迁移到 PostgreSQL、Redis 和
+> Celery。旧 `/api/trip/*` 契约继续可用，但其任务事实源已不再是进程内字典或 JSON
+> 文件。当前架构、部署和回滚说明见 `docs/ARCHITECTURE.md` 与 `docs/DEPLOYMENT.md`。
+
 <div align="center">
 
 [🇨🇳 中文](README.md) | [🇺🇸 English](README_en.md) | [🇯🇵 日本語](README_ja.md)

@@ -52,14 +52,14 @@ RUN uvx amap-mcp-server --help || true
 
 # 复制后端代码并安装 Node.js 依赖
 COPY backend/ ./backend/
-RUN cd backend && npm install --registry=https://registry.npmmirror.com
+RUN cd backend && npm install --registry=https://registry.npmjs.org --fetch-retries=5
 
 # 从阶段一复制前端构建产物
 COPY --from=frontend-builder /build/dist ./frontend/dist
 
 # 复制启动脚本
 COPY start.sh ./start.sh
-RUN chmod +x ./start.sh
+RUN sed -i 's/\r$//' ./start.sh && chmod +x ./start.sh
 
 # 魔搭创空间要求端口 7860
 EXPOSE 7860

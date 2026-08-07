@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+
+from backend.app.db.models import Trip, TripTask
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, sessionmaker
 
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "legacy"
 
@@ -13,11 +18,29 @@ def _load_fixture(name: str) -> dict:
         return json.load(fixture_file)
 
 
-def test_completed_task_status_matches_legacy_fixture(client, tasks_dir: Path) -> None:
+def test_completed_task_status_matches_legacy_fixture(
+    client,
+    db_session_factory: sessionmaker[Session],
+) -> None:
     expected = _load_fixture("trip_status_completed.json")
-    target = tasks_dir / f"{expected['task_id']}.json"
-    with open(target, "w", encoding="utf-8") as fixture_file:
-        json.dump(expected, fixture_file, ensure_ascii=False, indent=2)
+    with db_session_factory() as session:
+        trip = Trip(
+            id="trip-legacy-fixture",
+            idempotency_key="legacy-fixture",
+            request_payload={"contract": "legacy", "request": {"city": "西安"}},
+        )
+        session.add(
+            TripTask(
+                id=expected["task_id"],
+                trip=trip,
+                status="completed",
+                stage="completed",
+                progress=100,
+                message="旅行计划生成成功",
+                result_payload=expected["result"],
+            )
+        )
+        session.commit()
 
     response = client.get(f"/api/trip/status/{expected['task_id']}")
 
@@ -32,3 +55,43 @@ def test_missing_task_status_preserves_legacy_404_shape(client) -> None:
 
     assert response.status_code == 404
     assert response.json() == expected
+
+
+def test_legacy_submission_uses_durable_store_without_loading_planner(
+    client,
+    db_session_factory: sessionmaker[Session],
+    tasks_dir: Path,
+) -> None:
+    planner_module = "backend.app.agents.trip_planner_agent"
+    sys.modules.pop(planner_module, None)
+    payload = {
+        "city": "Tokyo",
+        "cities": [{"city": "Tokyo", "days": 2}],
+        "start_date": "2026-10-10",
+        "end_date": "2026-10-11",
+        "travel_days": 2,
+        "transportation": "public transit",
+        "accommodation": "midscale hotel",
+        "preferences": ["food"],
+        "free_text_input": "",
+        "language": "en",
+    }
+
+    response = client.post(
+        "/api/trip/plan",
+        json=payload,
+        headers={"Idempotency-Key": "legacy-mobile-request"},
+    )
+    repeated = client.post(
+        "/api/trip/plan",
+        json=payload,
+        headers={"Idempotency-Key": "legacy-mobile-request"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "processing"
+    assert repeated.json()["task_id"] == response.json()["task_id"]
+    assert planner_module not in sys.modules
+    assert list(tasks_dir.glob("*.json")) == []
+    with db_session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(TripTask)) == 1

@@ -1,5 +1,8 @@
 # Backup, Restore And Rollback
 
+> 阶段 2 起 PostgreSQL 是任务事实源。本文保留阶段 0 的旧生产基线证据；多服务 staging
+> 的数据库备份、恢复和迁移回滚以 `docs/DEPLOYMENT.md` 为准。
+
 本说明适用于当前单容器 + Docker named volume 的 TripStar 基线。所有命令在 Oracle 主机执行。命令不得使用 `set -x`，不得打印 `.env`、`runtime_settings.json`、Cookie、API key 或 Basic Auth 内容。
 
 ## 1. 当前备份证据

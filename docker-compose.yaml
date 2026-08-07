@@ -1,29 +1,124 @@
+x-app-build: &app-build
+  context: .
+  dockerfile: Dockerfile
+  args:
+    VITE_AMAP_WEB_JS_KEY: ${VITE_AMAP_WEB_JS_KEY:-your_amap_web_js_api_key_here}
+    VITE_AMAP_WEB_KEY: ${VITE_AMAP_WEB_KEY:-your_amap_web_api_key_here}
+
+x-app-environment: &app-environment
+  LLM_API_KEY: ${LLM_API_KEY:-your_key}
+  LLM_BASE_URL: ${LLM_BASE_URL:-your_url}
+  LLM_MODEL_ID: ${LLM_MODEL_ID:-your_model}
+  LLM_TIMEOUT: ${LLM_TIMEOUT:-600}
+  TRIP_PLANNER_TIMEOUT: ${TRIP_PLANNER_TIMEOUT:-420}
+  VITE_AMAP_WEB_KEY: ${VITE_AMAP_WEB_KEY:-your_amap_web_api_key_here}
+  XHS_COOKIE: ${XHS_COOKIE:-your_xhs_cookie_here}
+  GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+  GOOGLE_MAPS_PROXY: ${GOOGLE_MAPS_PROXY:-}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-journeyops}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-journeyops}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_VISIBILITY_TIMEOUT: ${CELERY_VISIBILITY_TIMEOUT:-720}
+  TRIP_TASK_STALE_AFTER: ${TRIP_TASK_STALE_AFTER:-0}
+  TRIP_TASK_LOCK_TIMEOUT: ${TRIP_TASK_LOCK_TIMEOUT:-90}
+  TRIP_TASK_SOFT_TIME_LIMIT: ${TRIP_TASK_SOFT_TIME_LIMIT:-600}
+  TRIP_TASK_HARD_TIME_LIMIT: ${TRIP_TASK_HARD_TIME_LIMIT:-660}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-journeyops}
+      POSTGRES_DB: ${POSTGRES_DB:-journeyops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  migrate:
+    image: journeyops-app:${IMAGE_TAG:-latest}
+    build: *app-build
+    command: ["alembic", "-c", "backend/alembic.ini", "upgrade", "head"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  worker:
+    image: journeyops-app:${IMAGE_TAG:-latest}
+    build: *app-build
+    command:
+      - celery
+      - -A
+      - backend.app.workers.celery_app:celery_app
+      - worker
+      - --loglevel=INFO
+      - --hostname=journeyops@%h
+    environment: *app-environment
+    volumes:
+      - trip_data:/app/backend/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - celery -A backend.app.workers.celery_app:celery_app inspect ping -d "journeyops@$${HOSTNAME}" --timeout=5 | grep -q pong
+      interval: 15s
+      timeout: 8s
+      retries: 8
+      start_period: 20s
+    restart: unless-stopped
+
   trip-planner:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        VITE_AMAP_WEB_JS_KEY: ${VITE_AMAP_WEB_JS_KEY:-your_amap_web_js_api_key_here}
-        VITE_AMAP_WEB_KEY: ${VITE_AMAP_WEB_KEY:-your_amap_web_api_key_here}
+    image: journeyops-app:${IMAGE_TAG:-latest}
+    build: *app-build
     container_name: helloagents-trip-planner
     ports:
       - "7860:7860"
     environment:
-      - LLM_API_KEY=${LLM_API_KEY:-your_key}
-      - LLM_BASE_URL=${LLM_BASE_URL:-your_url}
-      - LLM_MODEL_ID=${LLM_MODEL_ID:-your_model}
-      - LLM_TIMEOUT=${LLM_TIMEOUT:-600}
-      - VITE_AMAP_WEB_KEY=${VITE_AMAP_WEB_KEY:-your_amap_web_api_key_here}
-      - XHS_COOKIE=${XHS_COOKIE:-your_xhs_cookie_here}
-      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY:-}
-      - GOOGLE_MAPS_PROXY=${GOOGLE_MAPS_PROXY:-}
-      - HOST=0.0.0.0
-      - PORT=7860
-      - LOG_LEVEL=INFO
+      <<: *app-environment
+      HOST: 0.0.0.0
+      PORT: 7860
     volumes:
       - trip_data:/app/backend/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:7860/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
     restart: unless-stopped
 
 volumes:
   trip_data:
+  postgres_data:
+  redis_data:
