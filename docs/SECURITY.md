@@ -19,11 +19,11 @@
 | AMap Web Service key | Never | Never | Never | Server environment only |
 | Xiaohongshu Cookie | Never | Never | Never | Server environment only |
 | API access code | Never | Never | Never | Reverse proxy/client header and server environment |
-| AMap Web JS Key/security code | Required by map JS | Never populated | Never | Build environment; domain restricted |
+| AMap Web JS Key/security code | Required by map JS | Never populated | Never | Server environment to browser; domain restricted |
 
-`GET /api/settings` may expose the browser AMap JS Key because it is already delivered to browsers, but it only
-returns booleans for server-side Provider configuration. `PUT /api/settings` returns `403` unless runtime updates
-are explicitly enabled and a valid `X-Access-Code` is supplied.
+`GET /api/settings` may expose the browser AMap JS Key and security code because they are required by map JavaScript,
+but it only returns booleans for server-side Provider configuration. `PUT /api/settings` returns `403` unless
+runtime updates are explicitly enabled and a valid `X-Access-Code` is supplied.
 
 ## Operational Controls
 

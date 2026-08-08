@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # 高德地图API配置
     vite_amap_web_key: str = ""
     vite_amap_web_js_key: str = ""
+    vite_amap_security_js_code: str = ""
 
     # Google Maps API配置
     google_maps_api_key: str = ""
@@ -174,6 +175,7 @@ def get_runtime_settings() -> dict[str, str | bool]:
     """Return browser-safe runtime status without disclosing backend secrets."""
     return {
         "vite_amap_web_js_key": settings.vite_amap_web_js_key or "",
+        "vite_amap_security_js_code": settings.vite_amap_security_js_code or "",
         "openai_base_url": settings.openai_base_url or "",
         "openai_model": settings.openai_model or "",
         "demo_mode": settings.demo_mode,

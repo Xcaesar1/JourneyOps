@@ -395,6 +395,7 @@ export interface TripVersionRecord {
 
 export interface BackendRuntimeSettings {
   vite_amap_web_js_key: string
+  vite_amap_security_js_code: string
   openai_base_url: string
   openai_model: string
   demo_mode: boolean
@@ -410,6 +411,7 @@ export interface BackendRuntimeSettings {
 export interface RuntimeSettings {
   api_base_url: string
   vite_amap_web_js_key: string
+  vite_amap_security_js_code: string
   openai_base_url: string
   openai_model: string
   demo_mode: boolean

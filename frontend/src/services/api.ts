@@ -21,6 +21,7 @@ const RUNTIME_AMAP_WEB_JS_KEY_STORAGE_KEY = 'tripstar.runtime.amap_web_js_key'
 const API_ACCESS_CODE_STORAGE_KEY = 'journeyops.api_access_code'
 const DEFAULT_RUNTIME_BACKEND_SETTINGS: BackendRuntimeSettings = {
   vite_amap_web_js_key: '',
+  vite_amap_security_js_code: '',
   openai_base_url: '',
   openai_model: '',
   demo_mode: false,
@@ -121,6 +122,9 @@ const normalizeBackendRuntimeSettings = (
 ): BackendRuntimeSettings => ({
   vite_amap_web_js_key: normalizeText(
     data?.vite_amap_web_js_key ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.vite_amap_web_js_key
+  ),
+  vite_amap_security_js_code: normalizeText(
+    data?.vite_amap_security_js_code ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.vite_amap_security_js_code
   ),
   openai_base_url:
     normalizeText(data?.openai_base_url ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.openai_base_url) ||

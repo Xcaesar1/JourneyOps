@@ -36,6 +36,18 @@ def test_runtime_settings_get_never_serializes_backend_secrets(monkeypatch) -> N
     assert response.json()["data"]["xhs_configured"] is True
 
 
+def test_runtime_settings_exposes_only_domain_restricted_browser_map_credentials(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "vite_amap_web_js_key", "browser-map-key")
+    monkeypatch.setattr(settings, "vite_amap_security_js_code", "browser-security-code")
+
+    with _client() as client:
+        response = client.get("/api/settings")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["vite_amap_web_js_key"] == "browser-map-key"
+    assert response.json()["data"]["vite_amap_security_js_code"] == "browser-security-code"
+
+
 def test_runtime_secret_updates_are_disabled_by_default(monkeypatch) -> None:
     monkeypatch.setattr(settings, "runtime_secret_updates_enabled", False)
 

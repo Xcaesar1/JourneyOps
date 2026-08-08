@@ -129,6 +129,7 @@ const settingsSaving = ref(false)
 const settingsForm = reactive<RuntimeSettings>({
   api_base_url: '',
   vite_amap_web_js_key: '',
+  vite_amap_security_js_code: '',
   openai_base_url: '',
   openai_model: '',
   demo_mode: false,
@@ -157,6 +158,7 @@ const handleCtaClick = () => {
 const applyRuntimeSettings = (settings: RuntimeSettings) => {
   settingsForm.api_base_url = settings.api_base_url || ''
   settingsForm.vite_amap_web_js_key = settings.vite_amap_web_js_key || ''
+  settingsForm.vite_amap_security_js_code = settings.vite_amap_security_js_code || ''
   settingsForm.openai_base_url = settings.openai_base_url || ''
   settingsForm.openai_model = settings.openai_model || ''
   settingsForm.demo_mode = settings.demo_mode

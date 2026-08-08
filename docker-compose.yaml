@@ -1,9 +1,6 @@
 x-app-build: &app-build
   context: .
   dockerfile: Dockerfile
-  args:
-    AMAP_BROWSER_CREDENTIAL: ${VITE_AMAP_WEB_JS_KEY:-}
-    AMAP_BROWSER_SECURITY_CODE: ${VITE_AMAP_SECURITY_JS_CODE:-}
 
 x-service-logging: &service-logging
   driver: json-file
@@ -38,6 +35,7 @@ x-app-environment: &app-environment
   TRIP_PLANNER_TIMEOUT: ${TRIP_PLANNER_TIMEOUT:-420}
   VITE_AMAP_WEB_KEY: ${VITE_AMAP_WEB_KEY:-}
   VITE_AMAP_WEB_JS_KEY: ${VITE_AMAP_WEB_JS_KEY:-}
+  VITE_AMAP_SECURITY_JS_CODE: ${VITE_AMAP_SECURITY_JS_CODE:-}
   XHS_COOKIE: ${XHS_COOKIE:-}
   XHS_ENABLED: ${XHS_ENABLED:-false}
   BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}

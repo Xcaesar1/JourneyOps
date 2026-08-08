@@ -17,14 +17,14 @@ published safely.
 - Demo still uses PostgreSQL, Redis, Celery, JourneyGraph, deterministic validation and human review.
 - `GET /api/settings` returns only browser-safe values and boolean configuration status.
 - Runtime Secret mutation is disabled by default and, when explicitly enabled, requires the API access code.
-- Browser AMap JS credentials are build-time public credentials and must be domain-restricted; server credentials
-  never enter the frontend bundle or settings response.
+- Browser AMap JS credentials are runtime public credentials and must be domain-restricted; backend Provider
+  credentials never enter the frontend bundle or settings response.
 - Production API docs are disabled by default. Demo may enable them explicitly.
 - Demo, staging and production use distinct Compose project names, ports and named volumes.
 
 ## Consequences
 
 - The keyless demo proves orchestration and product flow, not live provider quality or current travel facts.
-- Operators must rebuild the frontend when changing the AMap browser JS Key or security code.
+- Operators may rotate the AMap browser JS Key or security code without rebuilding the application image.
 - Provider readiness is visible without revealing credential values.
 - A public release can be reviewed without distributing paid credentials or personal Cookies.

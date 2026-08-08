@@ -1009,6 +1009,7 @@ import type {
 } from '@/types'
 import {
   compareTripVersions,
+  getBackendRuntimeSettings,
   getRuntimeApiBaseUrl,
   getRuntimeMapJsKey,
   getTripTask,
@@ -3268,12 +3269,13 @@ const initMap = async () => {
 // 初始化高德地图
 const initAMap = async () => {
   try {
-    const mapJsKey = getRuntimeMapJsKey()
+    const runtimeSettings = await getBackendRuntimeSettings()
+    const mapJsKey = getRuntimeMapJsKey() || runtimeSettings.vite_amap_web_js_key
     if (!mapJsKey) {
       message.warning('请先在设置中配置高德地图 JS Key')
       return
     }
-    const securityJsCode = String(import.meta.env.VITE_AMAP_SECURITY_JS_CODE || '').trim()
+    const securityJsCode = runtimeSettings.vite_amap_security_js_code
     if (securityJsCode) {
       ;(window as any)._AMapSecurityConfig = { securityJsCode }
     }

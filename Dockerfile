@@ -12,15 +12,7 @@ RUN npm ci --registry=https://registry.npmmirror.com
 # 复制前端代码并构建
 COPY frontend/ ./
 
-# 接收构建参数
-ARG AMAP_BROWSER_CREDENTIAL
-ARG AMAP_BROWSER_SECURITY_CODE
-
-# Browser credentials are embedded by Vite and must be domain-restricted at the provider.
-RUN VITE_API_BASE_URL="" \
-    VITE_AMAP_WEB_JS_KEY="$AMAP_BROWSER_CREDENTIAL" \
-    VITE_AMAP_SECURITY_JS_CODE="$AMAP_BROWSER_SECURITY_CODE" \
-    npm run build
+RUN VITE_API_BASE_URL="" npm run build
 
 
 # ================================
