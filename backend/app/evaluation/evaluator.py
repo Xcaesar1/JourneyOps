@@ -114,7 +114,7 @@ def _evaluate_case(
         "resume_success": observation.resume_success,
         "replan_scope_precise": observation.replan_scope_precision >= 0.8,
     }
-    failed = [assertion for assertion in case.assertions if not checks[assertion]]
+    failed: list[str] = [assertion for assertion in case.assertions if not checks[assertion]]
     for issue in case.expected_detections:
         if issue not in observation.detected_issues:
             failed.append(f"detects:{issue}")

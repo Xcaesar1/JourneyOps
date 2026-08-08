@@ -622,6 +622,9 @@ def submit_review_decision(
 
     selected_review = review
     if review.workflow_type == "initial" and decision.action == "modify":
+        changes = decision.changes
+        if changes is None:
+            raise ValueError("changes are required when action is modify")
         review.resolved_at = datetime.now(timezone.utc)
         selected_review = TripReview(
             id=f"review_{uuid4().hex[:20]}",
@@ -634,8 +637,8 @@ def submit_review_decision(
             proposed_version=1,
             parent_review_id=review.id,
             decision_action="modify",
-            reason=decision.reason or decision.changes.instruction,
-            change_request=decision.changes.model_dump(mode="json"),
+            reason=decision.reason or changes.instruction,
+            change_request=changes.model_dump(mode="json"),
             preview_payload=review.preview_payload,
             native_payload=review.native_payload,
         )

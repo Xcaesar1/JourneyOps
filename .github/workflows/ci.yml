@@ -48,6 +48,18 @@ jobs:
       - name: Ruff critical checks on existing backend code
         run: python -m ruff check backend/app --select E9,F63,F7,F82
 
+      - name: Mypy on staged architecture
+        run: >-
+          python -m mypy
+          backend/app/domain
+          backend/app/evaluation
+          backend/app/services/replanning.py
+          backend/app/services/research
+          backend/app/services/routing
+          backend/app/agents/journey_graph
+          backend/app/agents/replan_graph
+          backend/app/api/v2
+
       - name: Apply database migrations
         env:
           DATABASE_URL: postgresql+psycopg://journeyops:journeyops_ci@localhost:5432/journeyops

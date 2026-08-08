@@ -17,6 +17,7 @@ from ...services.routing import RouteEstimateProvider
 from ..journey_graph.nodes.enrich import enrich_plan
 from ..journey_graph.nodes.transport import make_plan_intercity_transport_node
 from ..journey_graph.nodes.validate import validate_plan
+from ..journey_graph.state import TripState
 from .state import ReplanState
 
 
@@ -146,13 +147,16 @@ def enrich_replan(state: ReplanState) -> dict[str, Any]:
             for route in base_plan.route_matrix
             if route.estimate_id in intercity_route_ids
         ]
-    enriched = enrich_plan(
-        {
-            **state,
-            "transport_options": transport_options,
-            "route_estimates": route_estimates,
-        }
-    )  # type: ignore[arg-type]
+    enrich_state: TripState = {
+        "trip_id": state["trip_id"],
+        "task_id": state["task_id"],
+        "request": state["request"],
+        "draft_plan": state["draft_plan"],
+        "transport_options": transport_options,
+        "route_estimates": route_estimates,
+        "metrics": state.get("metrics", {}),
+    }
+    enriched = enrich_plan(enrich_state)
     enriched_plan = TripPlanV2.model_validate(enriched["draft_plan"])
     impacted = set(state["impact_scope"].day_indices)
     base_days = {day.day_index: day for day in base_plan.days}
