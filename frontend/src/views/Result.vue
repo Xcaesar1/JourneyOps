@@ -6164,12 +6164,14 @@ const drawRoutes = async (AMap: any, attractions: any[]): Promise<any[]> => {
 
   .review-actions,
   .review-form-actions {
+    flex-direction: column;
+    align-items: stretch;
     justify-content: stretch;
   }
 
   .review-actions :deep(.ant-btn),
   .review-form-actions :deep(.ant-btn) {
-    flex: 1;
+    width: 100%;
   }
 
   .version-row {
