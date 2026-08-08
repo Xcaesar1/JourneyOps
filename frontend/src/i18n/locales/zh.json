@@ -160,6 +160,7 @@
     "exportPdf": "导出为 PDF",
     "side": {
       "overview": "行程概览",
+      "sources": "来源",
       "budget": "预算明细",
       "map": "景点地图",
       "days": "每日行程",
@@ -174,6 +175,36 @@
     "dateLabel": "日期:",
     "suggestionLabel": "建议:",
     "dateRange": "{start} 至 {end}",
+    "sources": {
+      "eyebrow": "Evidence Ledger",
+      "title": "来源与更新时间",
+      "description": "营业、闭馆、预约与活动等时效事实会保留原始来源；没有可靠来源时明确标记为未知。",
+      "updatedAt": "最近研究",
+      "fetchedAt": "抓取于",
+      "unknownTime": "时间未知",
+      "unknownSource": "尚无可验证来源",
+      "noDomain": "无来源域名",
+      "emptyTitle": "此计划尚无来源记录",
+      "emptyDescription": "当前为降级计划，请在出发前通过官方渠道复核营业时间、预约和临时闭馆信息。",
+      "status": {
+        "complete": "来源完整",
+        "partial": "部分来源",
+        "unavailable": "降级模式"
+      },
+      "claims": {
+        "opening_hours": "营业时间",
+        "closure": "闭馆公告",
+        "reservation": "预约规则",
+        "events": "活动信息",
+        "travel_tips": "旅行提示"
+      },
+      "trust": {
+        "official": "官方",
+        "major_platform": "主要平台",
+        "community": "社区",
+        "unknown": "未知"
+      }
+    },
     "budget": {
       "title": "预算明细",
       "attraction": "景点门票",

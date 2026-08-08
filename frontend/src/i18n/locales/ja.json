@@ -160,6 +160,7 @@
     "exportPdf": "PDF として保存",
     "side": {
       "overview": "旅程概要",
+      "sources": "情報源",
       "budget": "予算内訳",
       "map": "観光地マップ",
       "days": "日別プラン",
@@ -174,6 +175,36 @@
     "dateLabel": "日付:",
     "suggestionLabel": "提案:",
     "dateRange": "{start} 〜 {end}",
+    "sources": {
+      "eyebrow": "Evidence Ledger",
+      "title": "情報源と更新時刻",
+      "description": "営業時間、休館、予約、イベントなどの時事情報には出典を保存し、信頼できる出典がない場合は不明と表示します。",
+      "updatedAt": "最終調査",
+      "fetchedAt": "取得",
+      "unknownTime": "時刻不明",
+      "unknownSource": "確認可能な情報源なし",
+      "noDomain": "ドメインなし",
+      "emptyTitle": "このプランには情報源がありません",
+      "emptyDescription": "縮退プランです。出発前に営業時間、予約、臨時休館を公式情報で確認してください。",
+      "status": {
+        "complete": "完全",
+        "partial": "一部のみ",
+        "unavailable": "縮退モード"
+      },
+      "claims": {
+        "opening_hours": "営業時間",
+        "closure": "休館情報",
+        "reservation": "予約規則",
+        "events": "イベント",
+        "travel_tips": "旅行情報"
+      },
+      "trust": {
+        "official": "公式",
+        "major_platform": "主要プラットフォーム",
+        "community": "コミュニティ",
+        "unknown": "不明"
+      }
+    },
     "budget": {
       "title": "予算内訳",
       "attraction": "観光スポット",

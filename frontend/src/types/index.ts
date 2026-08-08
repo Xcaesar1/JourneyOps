@@ -76,6 +76,25 @@ export interface WeatherInfo {
   wind_power: string
 }
 
+export type SourceClaimType = 'opening_hours' | 'closure' | 'reservation' | 'events' | 'travel_tips'
+export type SourceTrustLevel = 'official' | 'major_platform' | 'community' | 'unknown'
+export type SourceFreshnessStatus = 'fresh' | 'stale' | 'unknown'
+
+export interface SourceEvidence {
+  id: string
+  title: string
+  url?: string | null
+  domain: string
+  provider: string
+  claim_type: SourceClaimType
+  claim_text: string
+  published_at?: string | null
+  fetched_at: string
+  freshness_status: SourceFreshnessStatus
+  trust_level: SourceTrustLevel
+  confidence: number
+}
+
 export interface TripPlan {
   city: string
   cities?: string[]
@@ -85,6 +104,9 @@ export interface TripPlan {
   weather_info: WeatherInfo[]
   overall_suggestions: string
   budget?: Budget
+  source_evidence?: SourceEvidence[]
+  research_updated_at?: string | null
+  research_status?: 'complete' | 'partial' | 'unavailable'
 }
 
 export interface TripFormData {

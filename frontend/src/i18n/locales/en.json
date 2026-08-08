@@ -160,6 +160,7 @@
     "exportPdf": "Export as PDF",
     "side": {
       "overview": "Overview",
+      "sources": "Sources",
       "budget": "Budget",
       "map": "Attraction Map",
       "days": "Daily Itinerary",
@@ -174,6 +175,36 @@
     "dateLabel": "Dates:",
     "suggestionLabel": "Suggestions:",
     "dateRange": "{start} to {end}",
+    "sources": {
+      "eyebrow": "Evidence Ledger",
+      "title": "Sources and freshness",
+      "description": "Time-sensitive facts such as opening hours, closures, reservations, and events retain their source. Missing evidence is marked unknown.",
+      "updatedAt": "Last researched",
+      "fetchedAt": "Fetched",
+      "unknownTime": "Unknown time",
+      "unknownSource": "No verified source",
+      "noDomain": "No source domain",
+      "emptyTitle": "No source records for this plan",
+      "emptyDescription": "This is a degraded plan. Verify opening hours, reservations, and temporary closures with official channels before departure.",
+      "status": {
+        "complete": "Complete",
+        "partial": "Partial",
+        "unavailable": "Degraded"
+      },
+      "claims": {
+        "opening_hours": "Opening hours",
+        "closure": "Closure notice",
+        "reservation": "Reservation",
+        "events": "Events",
+        "travel_tips": "Travel tips"
+      },
+      "trust": {
+        "official": "Official",
+        "major_platform": "Major platform",
+        "community": "Community",
+        "unknown": "Unknown"
+      }
+    },
     "budget": {
       "title": "Budget Breakdown",
       "attraction": "Attractions",
