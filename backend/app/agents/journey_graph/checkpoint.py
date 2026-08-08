@@ -13,6 +13,11 @@ from psycopg.rows import dict_row
 from ...db.session import database_url
 
 ALLOWED_CHECKPOINT_TYPES = [
+    ("backend.app.domain.research_models", "ProviderIssue"),
+    ("backend.app.domain.research_models", "ResearchQuery"),
+    ("backend.app.domain.research_models", "ResearchReport"),
+    ("backend.app.domain.research_models", "SourceEvidence"),
+    ("backend.app.domain.research_models", "WebSearchResult"),
     ("backend.app.domain.trip_models", "AttractionV2"),
     ("backend.app.domain.trip_models", "BudgetV2"),
     ("backend.app.domain.trip_models", "CityStayV2"),
