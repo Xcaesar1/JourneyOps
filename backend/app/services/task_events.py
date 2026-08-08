@@ -13,7 +13,8 @@ from redis import Redis
 from ..db.models import TripTask
 
 LOGGER = logging.getLogger(__name__)
-FINAL_TASK_STATUSES = frozenset({"completed", "failed", "cancelled"})
+FINAL_TASK_STATUSES = frozenset({"completed", "rejected", "failed", "cancelled"})
+TASK_STREAM_STOP_STATUSES = FINAL_TASK_STATUSES | {"awaiting_approval"}
 
 
 def redis_url() -> str:
@@ -42,6 +43,7 @@ def task_snapshot(task: TripTask) -> dict[str, Any]:
         "started_at": _iso(task.started_at),
         "finished_at": _iso(task.finished_at),
         "result": task.result_payload,
+        "review": task.review_payload,
         "error": (
             {"code": task.error_code or "task_failed", "message": task.error_message or task.message}
             if task.status == "failed"

@@ -8,14 +8,22 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..domain.research_models import SourceEvidence
-from .models import SourceEvidenceRecord, Trip, TripSourceLink, TripTask, TripVersion
+from ..domain.review_models import TripReviewDecisionV2
+from .models import (
+    SourceEvidenceRecord,
+    Trip,
+    TripReview,
+    TripSourceLink,
+    TripTask,
+    TripVersion,
+)
 
-FINAL_TASK_STATUSES = frozenset({"completed", "failed", "cancelled"})
+FINAL_TASK_STATUSES = frozenset({"completed", "rejected", "failed", "cancelled"})
 
 
 class IdempotencyConflictError(ValueError):
@@ -188,6 +196,12 @@ def save_trip_version(
     schema_version: str = "legacy",
     native_payload: dict[str, Any] | None = None,
     source_evidence: Sequence[SourceEvidence] = (),
+    parent_version: int | None = None,
+    review_id: str | None = None,
+    change_reason: str = "",
+    change_sources: Sequence[str] = (),
+    validation_report: dict[str, Any] | None = None,
+    activate: bool = False,
 ) -> TripVersion:
     """Insert one immutable version, returning the existing row on redelivery."""
     existing = session.scalar(
@@ -198,6 +212,10 @@ def save_trip_version(
     )
     if existing is not None:
         _save_source_links(session, existing, source_evidence)
+        if activate:
+            trip = session.get(Trip, trip_id)
+            if trip is not None:
+                trip.active_version = existing.version
         session.commit()
         return existing
 
@@ -209,11 +227,21 @@ def save_trip_version(
         schema_version=schema_version,
         payload=payload,
         native_payload=native_payload,
+        parent_version=parent_version,
+        review_id=review_id,
+        change_reason=change_reason,
+        change_sources=list(change_sources),
+        validation_report=validation_report or {},
     )
     session.add(record)
     try:
         session.flush()
         _save_source_links(session, record, source_evidence)
+        if activate:
+            trip = session.get(Trip, trip_id)
+            if trip is None:
+                raise LookupError(trip_id)
+            trip.active_version = version
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -296,6 +324,385 @@ def get_trip_version(session: Session, trip_id: str, version: int) -> TripVersio
             TripVersion.version == version,
         )
     )
+
+
+def list_trip_versions(session: Session, trip_id: str) -> list[TripVersion]:
+    """List immutable versions in business-version order."""
+    return list(
+        session.scalars(
+            select(TripVersion)
+            .where(TripVersion.trip_id == trip_id)
+            .order_by(TripVersion.version)
+        )
+    )
+
+
+def get_active_trip_version(session: Session, trip_id: str) -> TripVersion | None:
+    """Resolve the active immutable version without mutating historical rows."""
+    trip = get_trip(session, trip_id)
+    if trip is None:
+        return None
+    if trip.active_version is None:
+        return session.scalar(
+            select(TripVersion)
+            .where(
+                TripVersion.trip_id == trip_id,
+                TripVersion.version_role.in_(["primary", "replan", "rollback"]),
+            )
+            .order_by(TripVersion.version.desc())
+        )
+    return get_trip_version(session, trip_id, trip.active_version)
+
+
+def next_trip_version(session: Session, trip_id: str) -> int:
+    """Return the next collision-free immutable version number."""
+    current = session.scalar(
+        select(func.max(TripVersion.version)).where(TripVersion.trip_id == trip_id)
+    )
+    return int(current or 0) + 1
+
+
+def get_review(session: Session, review_id: str, *, for_update: bool = False) -> TripReview | None:
+    """Load one durable review record."""
+    statement = select(TripReview).where(TripReview.id == review_id)
+    if for_update:
+        statement = statement.with_for_update()
+    return session.scalar(statement)
+
+
+def get_current_review(session: Session, task: TripTask) -> TripReview | None:
+    """Load the review referenced by the task's durable public snapshot."""
+    if task.review_id is None:
+        return None
+    return get_review(session, task.review_id)
+
+
+def list_trip_reviews(session: Session, trip_id: str) -> list[TripReview]:
+    """List all review decisions and proposals without dropping superseded rounds."""
+    return list(
+        session.scalars(
+            select(TripReview)
+            .where(TripReview.trip_id == trip_id)
+            .order_by(TripReview.created_at, TripReview.id)
+        )
+    )
+
+
+def create_replan_review_request(
+    session: Session,
+    *,
+    task_id: str,
+    decision: TripReviewDecisionV2,
+) -> tuple[TripTask, TripReview]:
+    """Start a new replan workflow from the active immutable version."""
+    if decision.action != "modify" or decision.changes is None:
+        raise ValueError("A completed plan can only start a modify workflow.")
+    task = _required_task(session, task_id, for_update=True)
+    if task.status != "completed":
+        raise ValueError("A new replan can only start from a completed task.")
+    active = get_active_trip_version(session, task.trip_id)
+    if active is None or active.native_payload is None:
+        raise ValueError("The active version does not support structured replanning.")
+
+    review_id = f"review_{uuid4().hex[:20]}"
+    review = TripReview(
+        id=review_id,
+        trip_id=task.trip_id,
+        task_id=task.id,
+        workflow_type="replan",
+        thread_id=f"{task.id}:replan:{review_id}",
+        status="requested",
+        base_version=active.version,
+        proposed_version=next_trip_version(session, task.trip_id),
+        decision_action="modify",
+        reason=decision.reason or decision.changes.instruction,
+        change_request=decision.changes.model_dump(mode="json"),
+    )
+    session.add(review)
+    session.flush()
+    task.status = "queued"
+    task.stage = "replan_queued"
+    task.progress = 80
+    task.message = "Scoped replanning queued."
+    task.review_id = review.id
+    task.review_payload = review_public_payload(review)
+    task.celery_task_id = None
+    task.finished_at = None
+    task.error_code = None
+    task.error_message = None
+    task.attempt_count = 0
+    session.commit()
+    session.refresh(task)
+    session.refresh(review)
+    return task, review
+
+
+def record_pending_review(
+    session: Session,
+    *,
+    task_id: str,
+    workflow_type: str,
+    thread_id: str,
+    preview_payload: dict[str, Any],
+    native_payload: dict[str, Any],
+    validation_report: dict[str, Any],
+    diff_payload: dict[str, Any],
+    impact_scope: dict[str, Any] | None = None,
+    refreshed_sources: Sequence[str] = (),
+    base_version: int | None = None,
+    proposed_version: int | None = None,
+    reason: str = "",
+) -> tuple[TripTask, TripReview]:
+    """Persist an interrupted graph proposal and expose it through the task snapshot."""
+    task = _required_task(session, task_id, for_update=True)
+    current = get_review(session, task.review_id, for_update=True) if task.review_id else None
+    if current is not None and current.status == "pending":
+        review = current
+    elif current is not None and current.status == "requested":
+        review = current
+    else:
+        parent_review_id = current.id if current is not None else None
+        if current is not None and current.status == "changes_requested":
+            current.status = "superseded"
+            current.resolved_at = datetime.now(timezone.utc)
+        review = TripReview(
+            id=f"review_{uuid4().hex[:20]}",
+            trip_id=task.trip_id,
+            task_id=task.id,
+            workflow_type=workflow_type,
+            thread_id=thread_id,
+            status="pending",
+            base_version=base_version,
+            proposed_version=proposed_version,
+            parent_review_id=parent_review_id,
+            reason=reason or (current.reason if current is not None else ""),
+            change_request=current.change_request if current is not None else None,
+        )
+        session.add(review)
+        session.flush()
+
+    review.status = "pending"
+    review.decision_action = None
+    review.preview_payload = preview_payload
+    review.native_payload = native_payload
+    review.validation_report = validation_report
+    review.diff_payload = diff_payload
+    review.impact_scope = impact_scope
+    review.refreshed_sources = list(refreshed_sources)
+    review.base_version = base_version
+    review.proposed_version = proposed_version
+    review.updated_at = datetime.now(timezone.utc)
+
+    task.status = "awaiting_approval"
+    task.stage = "awaiting_approval"
+    task.progress = 90
+    task.message = "Trip plan is awaiting human approval."
+    task.result_payload = preview_payload
+    task.review_id = review.id
+    task.review_payload = review_public_payload(review)
+    task.celery_task_id = None
+    task.finished_at = None
+    session.commit()
+    session.refresh(task)
+    session.refresh(review)
+    task.review_payload = review_public_payload(review)
+    session.commit()
+    session.refresh(task)
+    return task, review
+
+
+def submit_review_decision(
+    session: Session,
+    *,
+    task_id: str,
+    decision: TripReviewDecisionV2,
+) -> tuple[TripTask, TripReview]:
+    """Persist a decision before dispatching graph resumption."""
+    task = _required_task(session, task_id, for_update=True)
+    if task.status != "awaiting_approval" or task.review_id is None:
+        raise ValueError("Task is not awaiting approval.")
+    review = get_review(session, task.review_id, for_update=True)
+    if review is None or review.status != "pending":
+        raise ValueError("The current review is no longer pending.")
+
+    review.decision_action = decision.action
+    review.reason = decision.reason or review.reason
+    if decision.changes is not None:
+        review.change_request = decision.changes.model_dump(mode="json")
+    review.status = {
+        "approve": "approved",
+        "modify": "changes_requested",
+        "reject": "rejected",
+    }[decision.action]
+    review.updated_at = datetime.now(timezone.utc)
+
+    selected_review = review
+    if review.workflow_type == "initial" and decision.action == "modify":
+        review.resolved_at = datetime.now(timezone.utc)
+        selected_review = TripReview(
+            id=f"review_{uuid4().hex[:20]}",
+            trip_id=review.trip_id,
+            task_id=review.task_id,
+            workflow_type="replan",
+            thread_id=f"{task.id}:replan:{review.id}",
+            status="requested",
+            base_version=None,
+            proposed_version=1,
+            parent_review_id=review.id,
+            decision_action="modify",
+            reason=decision.reason or decision.changes.instruction,
+            change_request=decision.changes.model_dump(mode="json"),
+            preview_payload=review.preview_payload,
+            native_payload=review.native_payload,
+        )
+        session.add(selected_review)
+        session.flush()
+
+    task.status = "queued"
+    task.stage = "review_resume"
+    task.progress = 90
+    task.message = f"Human review decision '{decision.action}' queued."
+    task.review_id = selected_review.id
+    task.review_payload = review_public_payload(selected_review)
+    task.celery_task_id = None
+    task.finished_at = None
+    task.attempt_count = 0
+    session.commit()
+    session.refresh(task)
+    session.refresh(selected_review)
+    return task, selected_review
+
+
+def mark_review_applied(session: Session, review_id: str) -> TripReview:
+    """Mark an approved proposal as the source of an immutable version."""
+    review = get_review(session, review_id, for_update=True)
+    if review is None:
+        raise LookupError(review_id)
+    review.status = "applied"
+    review.resolved_at = datetime.now(timezone.utc)
+    session.commit()
+    session.refresh(review)
+    return review
+
+
+def rollback_trip_version(
+    session: Session,
+    *,
+    trip_id: str,
+    target_version: int,
+    reason: str,
+) -> tuple[TripTask, TripReview, TripVersion]:
+    """Create and activate a new immutable version copied from an older version."""
+    from ..domain.trip_models import TripPlanV2
+    from ..services.replanning import diff_plans
+
+    trip = get_trip(session, trip_id)
+    if trip is None:
+        raise LookupError(trip_id)
+    task = _task_for_trip(session, trip_id)
+    if task.status != "completed":
+        raise ValueError("Version rollback requires a completed task.")
+    target = get_trip_version(session, trip_id, target_version)
+    active = get_active_trip_version(session, trip_id)
+    if target is None or active is None:
+        raise LookupError(target_version)
+    if target.version == active.version:
+        raise ValueError("The requested version is already active.")
+    if target.native_payload is None:
+        raise ValueError("The target version has no structured payload.")
+
+    new_version = next_trip_version(session, trip_id)
+    review = TripReview(
+        id=f"review_{uuid4().hex[:20]}",
+        trip_id=trip_id,
+        task_id=task.id,
+        workflow_type="rollback",
+        thread_id=f"{task.id}:rollback:{new_version}",
+        status="applied",
+        base_version=active.version,
+        proposed_version=new_version,
+        decision_action="approve",
+        reason=reason,
+        change_request=None,
+        preview_payload=target.payload,
+        native_payload=target.native_payload,
+        validation_report=target.validation_report or {},
+        refreshed_sources=[],
+        resolved_at=datetime.now(timezone.utc),
+    )
+    if active.native_payload is not None:
+        review.diff_payload = diff_plans(
+            TripPlanV2.model_validate(active.native_payload),
+            TripPlanV2.model_validate(target.native_payload),
+            from_version=active.version,
+            to_version=new_version,
+        ).model_dump(mode="json")
+    session.add(review)
+    session.flush()
+
+    record = save_trip_version(
+        session,
+        trip_id=trip_id,
+        version=new_version,
+        payload=target.payload,
+        planner_engine=target.planner_engine,
+        version_role="rollback",
+        schema_version=target.schema_version,
+        native_payload=target.native_payload,
+        parent_version=active.version,
+        review_id=review.id,
+        change_reason=reason,
+        change_sources=[f"version:{target_version}"],
+        validation_report=target.validation_report or {},
+        activate=True,
+    )
+    source_ids = list(
+        session.scalars(
+            select(TripSourceLink.source_id).where(
+                TripSourceLink.trip_version_id == target.id
+            )
+        )
+    )
+    for source_id in source_ids:
+        session.add(TripSourceLink(trip_version_id=record.id, source_id=source_id))
+
+    task.status = "completed"
+    task.stage = "completed"
+    task.progress = 100
+    task.message = f"Trip version {target_version} restored as version {new_version}."
+    task.result_payload = target.payload
+    task.review_id = review.id
+    task.review_payload = review_public_payload(review)
+    task.finished_at = datetime.now(timezone.utc)
+    session.commit()
+    session.refresh(task)
+    session.refresh(review)
+    session.refresh(record)
+    return task, review, record
+
+
+def review_public_payload(review: TripReview) -> dict[str, Any]:
+    """Serialize only review data intended for API consumers."""
+    return {
+        "review_id": review.id,
+        "trip_id": review.trip_id,
+        "task_id": review.task_id,
+        "workflow_type": review.workflow_type,
+        "status": review.status,
+        "base_version": review.base_version,
+        "proposed_version": review.proposed_version,
+        "parent_review_id": review.parent_review_id,
+        "reason": review.reason,
+        "change_request": review.change_request,
+        "impact_scope": review.impact_scope,
+        "refreshed_sources": review.refreshed_sources or [],
+        "validation_report": review.validation_report or {"issues": []},
+        "diff": review.diff_payload or {},
+        "preview": review.preview_payload,
+        "created_at": review.created_at.isoformat(),
+        "updated_at": review.updated_at.isoformat(),
+        "resolved_at": review.resolved_at.isoformat() if review.resolved_at else None,
+    }
 
 
 def stale_recoverable_tasks(session: Session, stale_after_seconds: int) -> list[TripTask]:

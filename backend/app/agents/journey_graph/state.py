@@ -36,6 +36,7 @@ class TripState(TypedDict, total=False):
     validation_report: ValidationReportV2
     revision_count: int
     approval_status: str
+    review_reason: str
     final_plan: TripPlanV2
     errors: list[dict[str, Any]]
     metrics: dict[str, Any]

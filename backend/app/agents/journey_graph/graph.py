@@ -15,11 +15,13 @@ from .nodes import (
     collect,
     enrich_plan,
     make_draft_node,
+    make_human_review_node,
     make_plan_intercity_transport_node,
     make_research_web_node,
     normalize_request,
     persist,
     prepare_research_queries,
+    reject_plan,
     revise_plan,
     validate_plan,
 )
@@ -33,6 +35,7 @@ def build_journey_graph(
     route_provider: RouteEstimateProvider | None = None,
     checkpointer: Any | None = None,
     interrupt_before: Sequence[str] | None = None,
+    require_human_review: bool = False,
 ):
     configured_research_provider = research_provider or NoopWebResearchProvider()
     configured_route_provider = route_provider or NoopRouteEstimateProvider()
@@ -49,6 +52,8 @@ def build_journey_graph(
     builder.add_node("enrich_plan", enrich_plan)
     builder.add_node("deterministic_validate", validate_plan)
     builder.add_node("revise_plan", revise_plan)
+    builder.add_node("human_review", make_human_review_node(require_human_review))
+    builder.add_node("reject_plan", reject_plan)
     builder.add_node("persist", persist)
     builder.add_edge(START, "normalize_request")
     builder.add_edge("normalize_request", "prepare_research_queries")
@@ -61,9 +66,15 @@ def build_journey_graph(
     builder.add_conditional_edges(
         "deterministic_validate",
         _route_after_validation,
-        {"revise_plan": "revise_plan", "persist": "persist"},
+        {"revise_plan": "revise_plan", "human_review": "human_review"},
     )
     builder.add_edge("revise_plan", "enrich_plan")
+    builder.add_conditional_edges(
+        "human_review",
+        _route_after_human_review,
+        {"persist": "persist", "reject_plan": "reject_plan"},
+    )
+    builder.add_edge("reject_plan", END)
     builder.add_edge("persist", END)
     return builder.compile(
         checkpointer=checkpointer,
@@ -75,4 +86,8 @@ def _route_after_validation(state: TripState) -> str:
     report = state["validation_report"]
     if report.has_critical and state.get("revision_count", 0) < 2:
         return "revise_plan"
-    return "persist"
+    return "human_review"
+
+
+def _route_after_human_review(state: TripState) -> str:
+    return "persist" if state.get("approval_status") == "approved" else "reject_plan"

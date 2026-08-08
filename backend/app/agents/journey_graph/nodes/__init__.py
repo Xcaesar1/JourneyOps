@@ -3,6 +3,7 @@
 from .collect import collect
 from .draft import DraftGenerator, build_placeholder_plan, make_draft_node
 from .enrich import enrich_plan
+from .human_review import make_human_review_node, reject_plan
 from .normalize import normalize_request
 from .persist import persist
 from .prepare_research import prepare_research_queries
@@ -17,9 +18,11 @@ __all__ = [
     "collect",
     "enrich_plan",
     "make_draft_node",
+    "make_human_review_node",
     "normalize_request",
     "persist",
     "prepare_research_queries",
+    "reject_plan",
     "revise_plan",
     "make_research_web_node",
     "make_plan_intercity_transport_node",

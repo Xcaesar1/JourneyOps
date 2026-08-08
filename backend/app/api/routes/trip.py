@@ -23,7 +23,7 @@ from ...db.repository import (
 from ...db.session import SessionLocal, get_db_session
 from ...models.schemas import TripRequest
 from ...services.task_events import (
-    FINAL_TASK_STATUSES,
+    TASK_STREAM_STOP_STATUSES,
     publish_task_event,
     redis_url,
     task_channel,
@@ -99,7 +99,7 @@ async def trip_task_ws(websocket: WebSocket, task_id: str) -> None:
             snapshot = _legacy_event(task)
 
         await websocket.send_json(snapshot)
-        if task.status in FINAL_TASK_STATUSES:
+        if task.status in TASK_STREAM_STOP_STATUSES:
             await websocket.close()
             return
 
@@ -112,14 +112,14 @@ async def trip_task_ws(websocket: WebSocket, task_id: str) -> None:
                         break
                     event = _legacy_event(current)
                 await websocket.send_json(event)
-                if current.status in FINAL_TASK_STATUSES:
+                if current.status in TASK_STREAM_STOP_STATUSES:
                     break
             else:
                 with SessionLocal() as session:
                     current = get_task(session, task_id)
                     if current is None:
                         break
-                    if current.status in FINAL_TASK_STATUSES:
+                    if current.status in TASK_STREAM_STOP_STATUSES:
                         await websocket.send_json(_legacy_event(current))
                         break
     except WebSocketDisconnect:
@@ -164,7 +164,17 @@ def get_task_status(task_id: str, session: DbSession) -> dict[str, Any]:
             "status": "completed",
             "result": task.result_payload,
         }
-    if task.status in {"failed", "cancelled"}:
+    if task.status == "awaiting_approval":
+        return {
+            "task_id": task.id,
+            "plan_id": task.id,
+            "status": "awaiting_approval",
+            "stage": task.stage,
+            "progress": task.progress,
+            "result": task.result_payload,
+            "review": task.review_payload,
+        }
+    if task.status in {"failed", "cancelled", "rejected"}:
         return {
             "task_id": task.id,
             "plan_id": task.id,
@@ -216,7 +226,9 @@ def _dispatch_or_fail(session: Session, task: TripTask) -> TripTask:
 def _legacy_event(task: TripTask) -> dict[str, Any]:
     if task.status == "completed":
         status = "completed"
-    elif task.status in {"failed", "cancelled"}:
+    elif task.status == "awaiting_approval":
+        status = "awaiting_approval"
+    elif task.status in {"failed", "cancelled", "rejected"}:
         status = "failed"
     else:
         status = "processing"
@@ -233,6 +245,8 @@ def _legacy_event(task: TripTask) -> dict[str, Any]:
         event["request_payload"] = _legacy_request_payload(task)
     if task.result_payload is not None:
         event["result"] = task.result_payload
+    if task.review_payload is not None:
+        event["review"] = task.review_payload
     return event
 
 

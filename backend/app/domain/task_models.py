@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .review_models import TripReviewRecordV2
+
 TRIP_TASK_RECORD_V2_EXAMPLE: dict[str, Any] = {
     "task_id": "task_1234567890ab",
     "trip_id": "trip_1234567890ab",
@@ -21,6 +23,7 @@ TRIP_TASK_RECORD_V2_EXAMPLE: dict[str, Any] = {
     "finished_at": None,
     "message": "Task queued for durable execution.",
     "result": None,
+    "review": None,
     "error": None,
 }
 
@@ -28,9 +31,11 @@ TaskStatusV2 = Literal[
     "queued",
     "processing",
     "retrying",
+    "awaiting_approval",
     "cancel_requested",
     "cancelled",
     "completed",
+    "rejected",
     "failed",
 ]
 
@@ -60,4 +65,5 @@ class TripTaskRecordV2(BaseModel):
     finished_at: datetime | None = None
     message: str
     result: dict[str, Any] | None = None
+    review: TripReviewRecordV2 | None = None
     error: TaskErrorV2 | None = None

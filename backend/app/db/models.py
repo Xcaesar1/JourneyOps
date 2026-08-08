@@ -39,9 +39,13 @@ class Trip(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
+    active_version: Mapped[int | None] = mapped_column(Integer)
 
     tasks: Mapped[list[TripTask]] = relationship(back_populates="trip", cascade="all, delete-orphan")
     versions: Mapped[list[TripVersion]] = relationship(
+        back_populates="trip", cascade="all, delete-orphan"
+    )
+    reviews: Mapped[list[TripReview]] = relationship(
         back_populates="trip", cascade="all, delete-orphan"
     )
 
@@ -64,6 +68,8 @@ class TripTask(Base):
     progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     message: Mapped[str] = mapped_column(Text, default="Task queued.", nullable=False)
     result_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    review_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    review_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error_code: Mapped[str | None] = mapped_column(String(64))
     error_message: Mapped[str | None] = mapped_column(Text)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -77,6 +83,9 @@ class TripTask(Base):
     )
 
     trip: Mapped[Trip] = relationship(back_populates="tasks")
+    reviews: Mapped[list[TripReview]] = relationship(
+        back_populates="task", cascade="all, delete-orphan"
+    )
 
 
 class TripVersion(Base):
@@ -103,6 +112,11 @@ class TripVersion(Base):
     )
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     native_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    parent_version: Mapped[int | None] = mapped_column(Integer)
+    review_id: Mapped[str | None] = mapped_column(String(40), index=True)
+    change_reason: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
+    change_sources: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    validation_report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     trip: Mapped[Trip] = relationship(back_populates="versions")
@@ -168,3 +182,46 @@ class TripSourceLink(Base):
 
     trip_version: Mapped[TripVersion] = relationship(back_populates="source_links")
     source: Mapped[SourceEvidenceRecord] = relationship(back_populates="trip_links")
+
+
+class TripReview(Base):
+    """Durable human decision and proposed plan for an interrupted workflow."""
+
+    __tablename__ = "trip_reviews"
+    __table_args__ = (
+        Index("ix_trip_reviews_trip_status", "trip_id", "status"),
+        Index("ix_trip_reviews_task_created_at", "task_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    trip_id: Mapped[str] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    task_id: Mapped[str] = mapped_column(
+        ForeignKey("trip_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    workflow_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    thread_id: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    base_version: Mapped[int | None] = mapped_column(Integer)
+    proposed_version: Mapped[int | None] = mapped_column(Integer)
+    parent_review_id: Mapped[str | None] = mapped_column(
+        ForeignKey("trip_reviews.id", ondelete="SET NULL"), index=True
+    )
+    decision_action: Mapped[str | None] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    change_request: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    impact_scope: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    refreshed_sources: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    validation_report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    diff_payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    preview_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    native_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    trip: Mapped[Trip] = relationship(back_populates="reviews")
+    task: Mapped[TripTask] = relationship(back_populates="reviews")

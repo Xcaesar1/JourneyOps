@@ -8,6 +8,7 @@ import os
 import re
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -19,9 +20,15 @@ from ..config import get_settings
 from ..db.repository import (
     FINAL_TASK_STATUSES,
     attach_celery_task,
+    get_active_trip_version,
+    get_current_review,
     get_task,
     get_trip,
     get_trip_version,
+    mark_review_applied,
+    next_trip_version,
+    record_pending_review,
+    review_public_payload,
     save_trip_version,
     stale_recoverable_tasks,
     task_needs_recovery,
@@ -29,6 +36,7 @@ from ..db.repository import (
 )
 from ..db.session import SessionLocal
 from ..domain.research_models import SourceEvidence
+from ..domain.review_models import ReplanRequestV2
 from ..domain.trip_models import TripPlanV2, TripRequestV2
 from ..models.schemas import CityStay, TripPlanResponse, TripRequest
 from ..services.task_events import publish_task_event, redis_url, task_snapshot
@@ -66,6 +74,16 @@ class PlannerExecution:
     schema_version: str
     native_payload: dict[str, Any] | None = None
     source_evidence: tuple[SourceEvidence, ...] = ()
+    workflow_status: Literal["completed", "awaiting_approval", "rejected"] = "completed"
+    review_workflow_type: Literal["initial", "replan"] | None = None
+    review_thread_id: str | None = None
+    review_base_version: int | None = None
+    review_proposed_version: int | None = None
+    review_reason: str = ""
+    impact_scope: dict[str, Any] | None = None
+    diff_payload: dict[str, Any] | None = None
+    validation_report: dict[str, Any] | None = None
+    refreshed_sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,6 +92,41 @@ class PlannerRunSet:
 
     primary: PlannerExecution
     comparison: PlannerExecution | None = None
+
+
+@dataclass(frozen=True)
+class ReviewContext:
+    """Detached persisted review state passed into one Worker execution."""
+
+    review_id: str
+    workflow_type: Literal["initial", "replan"]
+    thread_id: str
+    status: str
+    base_version: int | None
+    proposed_version: int | None
+    action: str | None
+    reason: str
+    change_request: dict[str, Any] | None
+    preview_payload: dict[str, Any] | None
+    native_payload: dict[str, Any] | None
+
+
+def _review_context(review: Any | None) -> ReviewContext | None:
+    if review is None:
+        return None
+    return ReviewContext(
+        review_id=review.id,
+        workflow_type=review.workflow_type,
+        thread_id=review.thread_id,
+        status=review.status,
+        base_version=review.base_version,
+        proposed_version=review.proposed_version,
+        action=review.decision_action,
+        reason=review.reason,
+        change_request=review.change_request,
+        preview_payload=review.preview_payload,
+        native_payload=review.native_payload,
+    )
 
 
 def enqueue_trip_task(task_id: str) -> str:
@@ -241,15 +294,23 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
             )
             publish_task_event(task)
             return task_snapshot(task)
-        existing_version = get_trip_version(session, task.trip_id, 1)
-        if existing_version is not None:
+        current_review = get_current_review(session, task)
+        review_context = _review_context(current_review)
+        actionable_review = current_review is not None and current_review.status in {
+            "requested",
+            "approved",
+            "changes_requested",
+            "rejected",
+        }
+        existing_version = get_active_trip_version(session, task.trip_id)
+        if existing_version is not None and not actionable_review:
             task = update_task_state(
                 session,
                 task_id,
                 status="completed",
                 stage="completed",
                 progress=100,
-                message="Existing trip version recovered after redelivery.",
+                message="Active trip version recovered after redelivery.",
                 result_payload=existing_version.payload,
                 finished=True,
             )
@@ -307,25 +368,109 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
             LOGGER.warning("Unable to extend task lock for %s", task_id)
 
     try:
-        planner_runs = asyncio.run(
-            _run_configured_planners(
-                task_id,
-                trip_id,
-                request_payload,
-                progress_callback,
+        if review_context is not None and review_context.workflow_type == "replan":
+            planner_runs = PlannerRunSet(
+                primary=asyncio.run(
+                    _run_replan_planner(
+                        task_id,
+                        trip_id,
+                        request_payload,
+                        progress_callback,
+                        review_context,
+                    )
+                )
             )
-        )
+        else:
+            planner_runs = asyncio.run(
+                _run_configured_planners(
+                    task_id,
+                    trip_id,
+                    request_payload,
+                    progress_callback,
+                    review_context=review_context,
+                )
+            )
         result_payload = planner_runs.primary.client_payload
+        primary = planner_runs.primary
+        if primary.workflow_status == "awaiting_approval":
+            if primary.native_payload is None or primary.review_thread_id is None:
+                raise RuntimeError("Interrupted planner did not provide a reviewable native proposal.")
+            with SessionLocal() as session:
+                waiting, _review = record_pending_review(
+                    session,
+                    task_id=task_id,
+                    workflow_type=primary.review_workflow_type or "initial",
+                    thread_id=primary.review_thread_id,
+                    preview_payload=result_payload,
+                    native_payload=primary.native_payload,
+                    validation_report=primary.validation_report or {"issues": []},
+                    diff_payload=primary.diff_payload or {},
+                    impact_scope=primary.impact_scope,
+                    refreshed_sources=primary.refreshed_sources,
+                    base_version=primary.review_base_version,
+                    proposed_version=primary.review_proposed_version,
+                    reason=primary.review_reason,
+                )
+                publish_task_event(waiting)
+                return task_snapshot(waiting)
+
+        if primary.workflow_status == "rejected":
+            with SessionLocal() as session:
+                current = get_task(session, task_id, for_update=True)
+                if current is None:
+                    raise LookupError(task_id)
+                review = get_current_review(session, current)
+                if review is not None:
+                    review.status = "rejected"
+                    review.resolved_at = datetime.now(timezone.utc)
+                    current.review_payload = review_public_payload(review)
+                active = get_active_trip_version(session, trip_id)
+                rejected = update_task_state(
+                    session,
+                    task_id,
+                    status="rejected",
+                    stage="rejected",
+                    progress=100,
+                    message="Trip plan was rejected by the reviewer.",
+                    result_payload=(active.payload if active is not None else result_payload),
+                    finished=True,
+                )
+                publish_task_event(rejected)
+                return task_snapshot(rejected)
+
         with SessionLocal() as session:
             current = get_task(session, task_id)
             if current is None or current.cancel_requested:
                 raise TaskCancelled(task_id)
+            persisted_review = get_current_review(session, current)
+            primary_version = (
+                persisted_review.proposed_version
+                if persisted_review is not None and persisted_review.proposed_version is not None
+                else 1
+            )
+            save_trip_version(
+                session,
+                trip_id=trip_id,
+                version=primary_version,
+                payload=result_payload,
+                planner_engine=primary.engine,
+                version_role=("replan" if primary.review_workflow_type == "replan" else "primary"),
+                schema_version=primary.schema_version,
+                native_payload=primary.native_payload,
+                source_evidence=primary.source_evidence,
+                parent_version=(persisted_review.base_version if persisted_review else None),
+                review_id=(persisted_review.id if persisted_review else None),
+                change_reason=(persisted_review.reason if persisted_review else "Initial plan"),
+                change_sources=primary.refreshed_sources,
+                validation_report=primary.validation_report or {},
+                activate=True,
+            )
             if planner_runs.comparison is not None:
                 comparison = planner_runs.comparison
                 save_trip_version(
                     session,
                     trip_id=trip_id,
-                    version=2,
+                    version=next_trip_version(session, trip_id),
                     payload=comparison.client_payload,
                     planner_engine=comparison.engine,
                     version_role="comparison",
@@ -333,18 +478,12 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                     native_payload=comparison.native_payload,
                     source_evidence=comparison.source_evidence,
                 )
-            primary = planner_runs.primary
-            save_trip_version(
-                session,
-                trip_id=trip_id,
-                version=1,
-                payload=result_payload,
-                planner_engine=primary.engine,
-                version_role="primary",
-                schema_version=primary.schema_version,
-                native_payload=primary.native_payload,
-                source_evidence=primary.source_evidence,
-            )
+            if persisted_review is not None:
+                applied = mark_review_applied(session, persisted_review.id)
+                current = get_task(session, task_id, for_update=True)
+                if current is not None:
+                    current.review_payload = review_public_payload(applied)
+                    session.commit()
             completed = update_task_state(
                 session,
                 task_id,
@@ -411,17 +550,21 @@ async def _run_configured_planners(
     trip_id: str,
     payload: dict[str, Any],
     progress_callback: Any,
+    *,
+    review_context: ReviewContext | None = None,
 ) -> PlannerRunSet:
     settings = get_settings()
     primary_engine: PlannerEngine = settings.planner_engine
+    review_kwargs = {"review_context": review_context} if review_context is not None else {}
     primary_call = _run_engine(
         primary_engine,
         task_id,
         trip_id,
         payload,
         progress_callback,
+        **review_kwargs,
     )
-    if not settings.planner_compare_engines:
+    if review_context is not None or not settings.planner_compare_engines:
         return PlannerRunSet(primary=await primary_call)
 
     comparison_engine: PlannerEngine = (
@@ -474,6 +617,8 @@ async def _run_engine(
     trip_id: str,
     payload: dict[str, Any],
     progress_callback: Any,
+    *,
+    review_context: ReviewContext | None = None,
 ) -> PlannerExecution:
     if engine == "legacy":
         result = await _run_legacy_planner(task_id, payload, progress_callback)
@@ -487,6 +632,7 @@ async def _run_engine(
         trip_id,
         payload,
         progress_callback,
+        review_context=review_context,
     )
 
 
@@ -523,19 +669,21 @@ async def _run_journey_graph_planner(
     trip_id: str,
     payload: dict[str, Any],
     progress_callback: Any,
+    *,
+    review_context: ReviewContext | None = None,
 ) -> PlannerExecution:
     """Run or resume the typed graph and adapt its result for existing clients."""
-    from ..adapters import trip_plan_v2_to_legacy
+    from langgraph.types import Command
+
     from ..agents.journey_graph import build_journey_graph, build_structured_plan_generator
     from ..agents.journey_graph.checkpoint import open_postgres_checkpointer
-    from ..services.knowledge_graph_service import build_knowledge_graph
     from ..services.research import build_configured_web_research_provider
     from ..services.routing import build_configured_route_estimate_provider
 
     request = _to_v2_request(payload)
     await progress_callback("planning", "JourneyGraph structured planning started.", 50)
 
-    def invoke_graph() -> TripPlanV2:
+    def invoke_graph() -> tuple[dict[str, Any], bool]:
         config = {"configurable": {"thread_id": task_id}}
         initial_state = {
             "trip_id": trip_id,
@@ -548,33 +696,174 @@ async def _run_journey_graph_planner(
                 research_provider=build_configured_web_research_provider(),
                 route_provider=build_configured_route_estimate_provider(),
                 checkpointer=checkpointer,
+                require_human_review=True,
             )
             snapshot = graph.get_state(config)
             if snapshot.values.get("final_plan") is not None and not snapshot.next:
                 state = snapshot.values
+            elif review_context is not None:
+                if not snapshot.next:
+                    raise ValueError("The initial review checkpoint is no longer resumable.")
+                state = graph.invoke(
+                    Command(
+                        resume={
+                            "action": review_context.action,
+                            "reason": review_context.reason,
+                        }
+                    ),
+                    config,
+                )
+            elif snapshot.next:
+                state = snapshot.values
             else:
-                graph_input = None if snapshot.next else initial_state
-                state = graph.invoke(graph_input, config)
-        return TripPlanV2.model_validate(state["final_plan"])
+                state = graph.invoke(initial_state, config)
+            waiting = bool(graph.get_state(config).next)
+        return dict(state), waiting
 
-    native_plan = await asyncio.to_thread(invoke_graph)
+    state, waiting = await asyncio.to_thread(invoke_graph)
+    plan = TripPlanV2.model_validate(state.get("final_plan") or state["draft_plan"])
+    client_response = await _build_client_payload(task_id, request, plan, progress_callback)
+    workflow_status: Literal["completed", "awaiting_approval", "rejected"] = "completed"
+    if waiting:
+        workflow_status = "awaiting_approval"
+    elif state.get("approval_status") == "rejected":
+        workflow_status = "rejected"
+    return PlannerExecution(
+        engine="journey_graph",
+        client_payload=client_response,
+        schema_version=plan.schema_version,
+        native_payload=plan.model_dump(mode="json"),
+        source_evidence=tuple(plan.source_evidence),
+        workflow_status=workflow_status,
+        review_workflow_type="initial",
+        review_thread_id=task_id,
+        review_proposed_version=1,
+        review_reason=(review_context.reason if review_context else "Initial plan review"),
+        validation_report=plan.validation_report.model_dump(mode="json"),
+    )
+
+
+async def _run_replan_planner(
+    task_id: str,
+    trip_id: str,
+    payload: dict[str, Any],
+    progress_callback: Any,
+    review_context: ReviewContext,
+) -> PlannerExecution:
+    """Start or resume the dedicated scoped Replan Graph."""
+    from langgraph.types import Command
+
+    from ..agents.journey_graph.checkpoint import open_postgres_checkpointer
+    from ..agents.replan_graph import build_replan_graph
+    from ..services.research import build_configured_web_research_provider
+    from ..services.routing import build_configured_route_estimate_provider
+
+    request = _to_v2_request(payload)
+    await progress_callback("replanning", "Scoped Replan Graph started.", 82)
+
+    def load_base_plan() -> TripPlanV2:
+        if review_context.native_payload is not None:
+            return TripPlanV2.model_validate(review_context.native_payload)
+        with SessionLocal() as session:
+            version = (
+                get_trip_version(session, trip_id, review_context.base_version)
+                if review_context.base_version is not None
+                else get_active_trip_version(session, trip_id)
+            )
+            if version is None or version.native_payload is None:
+                raise ValueError("The requested base version cannot be replanned.")
+            return TripPlanV2.model_validate(version.native_payload)
+
+    base_plan = load_base_plan()
+    change_request = ReplanRequestV2.model_validate(review_context.change_request)
+
+    def invoke_graph() -> tuple[dict[str, Any], bool]:
+        config = {"configurable": {"thread_id": review_context.thread_id}}
+        initial_state = {
+            "trip_id": trip_id,
+            "task_id": task_id,
+            "thread_id": review_context.thread_id,
+            "request": request,
+            "original_plan": base_plan,
+            "base_plan": base_plan,
+            "change_request": change_request,
+            "from_version": review_context.base_version,
+            "proposed_version": review_context.proposed_version or 1,
+            "replan_round": 0,
+        }
+        with open_postgres_checkpointer() as checkpointer:
+            graph = build_replan_graph(
+                research_provider=build_configured_web_research_provider(),
+                route_provider=build_configured_route_estimate_provider(),
+                checkpointer=checkpointer,
+                require_human_review=True,
+            )
+            snapshot = graph.get_state(config)
+            if review_context.status == "requested":
+                state = snapshot.values if snapshot.next else graph.invoke(initial_state, config)
+            elif review_context.status in {"approved", "changes_requested", "rejected"}:
+                if not snapshot.next:
+                    raise ValueError("The replan review checkpoint is no longer resumable.")
+                resume: dict[str, Any] = {
+                    "action": review_context.action,
+                    "reason": review_context.reason,
+                }
+                if review_context.action == "modify":
+                    resume["changes"] = review_context.change_request
+                state = graph.invoke(Command(resume=resume), config)
+            else:
+                state = snapshot.values
+            waiting = bool(graph.get_state(config).next)
+        return dict(state), waiting
+
+    state, waiting = await asyncio.to_thread(invoke_graph)
+    plan = TripPlanV2.model_validate(state.get("final_plan") or state["draft_plan"])
+    client_response = await _build_client_payload(task_id, request, plan, progress_callback)
+    workflow_status: Literal["completed", "awaiting_approval", "rejected"] = "completed"
+    if waiting:
+        workflow_status = "awaiting_approval"
+    elif state.get("review_action") == "reject":
+        workflow_status = "rejected"
+    diff = state.get("diff")
+    scope = state.get("impact_scope")
+    return PlannerExecution(
+        engine="journey_graph",
+        client_payload=client_response,
+        schema_version=plan.schema_version,
+        native_payload=plan.model_dump(mode="json"),
+        source_evidence=tuple(plan.source_evidence),
+        workflow_status=workflow_status,
+        review_workflow_type="replan",
+        review_thread_id=review_context.thread_id,
+        review_base_version=review_context.base_version,
+        review_proposed_version=review_context.proposed_version,
+        review_reason=review_context.reason,
+        impact_scope=(scope.model_dump(mode="json") if scope is not None else None),
+        diff_payload=(diff.model_dump(mode="json") if diff is not None else {}),
+        validation_report=plan.validation_report.model_dump(mode="json"),
+        refreshed_sources=tuple(state.get("refreshed_sources", [])),
+    )
+
+
+async def _build_client_payload(
+    task_id: str,
+    request: TripRequestV2,
+    native_plan: TripPlanV2,
+    progress_callback: Any,
+) -> dict[str, Any]:
+    from ..adapters import trip_plan_v2_to_legacy
+    from ..services.knowledge_graph_service import build_knowledge_graph
+
     adapted_plan = trip_plan_v2_to_legacy(native_plan)
-    await progress_callback("graph_building", "Building knowledge graph.", 95)
+    await progress_callback("graph_building", "Building knowledge graph.", 88)
     graph_data = build_knowledge_graph(adapted_plan, language=request.language)
-    client_response = TripPlanResponse(
+    return TripPlanResponse(
         success=True,
-        message="Trip plan generated successfully.",
+        message="Trip plan proposal generated successfully.",
         plan_id=task_id,
         data=adapted_plan,
         graph_data=graph_data,
     ).model_dump(mode="json")
-    return PlannerExecution(
-        engine="journey_graph",
-        client_payload=client_response,
-        schema_version=native_plan.schema_version,
-        native_payload=native_plan.model_dump(mode="json"),
-        source_evidence=tuple(native_plan.source_evidence),
-    )
 
 
 def _to_v2_request(payload: dict[str, Any]) -> TripRequestV2:
