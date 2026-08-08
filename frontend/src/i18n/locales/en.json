@@ -208,6 +208,7 @@
       "approvedSaved": "The itinerary was approved and saved as a version",
       "rejected": "The draft was rejected",
       "actionFailed": "Review action failed",
+      "noChanges": "This replan has no changes. Revise the request or reject the draft",
       "none": "None",
       "paces": {
         "relaxed": "Relaxed",

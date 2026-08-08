@@ -208,6 +208,7 @@
       "approvedSaved": "行程已通过并保存为正式版本",
       "rejected": "草案已拒绝",
       "actionFailed": "审批操作失败",
+      "noChanges": "此重规划没有产生差异，请修改要求或拒绝草案",
       "none": "无",
       "paces": {
         "relaxed": "轻松",

@@ -524,6 +524,12 @@ def submit_review_decision(
     review = get_review(session, task.review_id, for_update=True)
     if review is None or review.status != "pending":
         raise ValueError("The current review is no longer pending.")
+    if (
+        decision.action == "approve"
+        and review.workflow_type == "replan"
+        and not (review.diff_payload or {}).get("entries")
+    ):
+        raise ValueError("A replan proposal with no changes cannot be approved.")
 
     review.decision_action = decision.action
     review.reason = decision.reason or review.reason

@@ -91,7 +91,12 @@
           </div>
 
           <div v-if="currentReview?.status === 'pending' && reviewMode === 'summary'" class="review-actions">
-            <a-button type="primary" :loading="reviewSubmitting" @click="approveCurrentReview">
+            <a-button
+              type="primary"
+              :disabled="!canApproveCurrentReview"
+              :loading="reviewSubmitting"
+              @click="approveCurrentReview"
+            >
               {{ t('result.review.approve') }}
             </a-button>
             <a-button :disabled="reviewSubmitting" @click="reviewMode = 'modify'">
@@ -1085,6 +1090,12 @@ const versionOptions = computed(() => tripVersions.value.map(version => ({
   label: `V${version.version}${version.active ? ` · ${t('result.versions.active')}` : ''}`,
 })))
 
+const canApproveCurrentReview = computed(() => {
+  const review = currentReview.value
+  if (!review || review.status !== 'pending') return false
+  return review.workflow_type !== 'replan' || Boolean(review.diff?.entries?.length)
+})
+
 type OverviewAttractionItem = {
   name: string
   address: string
@@ -1566,6 +1577,10 @@ const waitForReviewResult = async () => {
 
 const approveCurrentReview = async () => {
   if (!taskId.value || currentReview.value?.status !== 'pending') return
+  if (!canApproveCurrentReview.value) {
+    message.warning(t('result.review.noChanges'))
+    return
+  }
   reviewSubmitting.value = true
   try {
     await submitTripReview(taskId.value, { action: 'approve' })

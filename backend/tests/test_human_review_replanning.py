@@ -210,6 +210,37 @@ def test_worker_saves_no_version_until_review_is_approved(
     assert task.review_payload["status"] == "applied"
 
 
+def test_no_change_replan_cannot_be_approved(client, db_session_factory) -> None:
+    task_id = _create_task(db_session_factory, "no-change-replan")
+    plan = _base_plan()
+    with db_session_factory() as session:
+        record_pending_review(
+            session,
+            task_id=task_id,
+            workflow_type="replan",
+            thread_id=f"{task_id}:replan:no-change",
+            preview_payload={"success": True, "data": {"city": plan.city}},
+            native_payload=plan.model_dump(mode="json"),
+            validation_report={"issues": []},
+            diff_payload={
+                "summary": "No changes.",
+                "changed_day_indices": [],
+                "unchanged_day_indices": [day.day_index for day in plan.days],
+                "entries": [],
+            },
+            base_version=1,
+            proposed_version=2,
+        )
+
+    response = client.post(
+        f"/api/v2/trips/tasks/{task_id}/review",
+        json={"action": "approve"},
+    )
+
+    assert response.status_code == 409
+    assert "no changes" in response.json()["error"]["message"].lower()
+
+
 def test_review_and_version_endpoints_compare_and_rollback(
     client,
     db_session_factory: sessionmaker[Session],
