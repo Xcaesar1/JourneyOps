@@ -10,6 +10,9 @@ services:
   migrate:
     container_name: journeyops-migrate-demo
 
+  data-init:
+    container_name: journeyops-data-init-demo
+
   worker:
     container_name: journeyops-worker-demo
     environment:

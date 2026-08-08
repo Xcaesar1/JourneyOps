@@ -10,6 +10,9 @@ services:
   migrate:
     container_name: journeyops-migrate-staging
 
+  data-init:
+    container_name: journeyops-data-init-staging
+
   worker:
     container_name: journeyops-worker-staging
 

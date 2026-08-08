@@ -32,8 +32,8 @@ are explicitly enabled and a valid `X-Access-Code` is supplied.
 - Upstream failures are mapped to fixed error codes; raw credential-bearing URLs and exception bodies are not
   returned to clients.
 - PostgreSQL is canonical. Redis data may be discarded and recovered from durable task state.
-- Container logs rotate at 10 MiB with three files; services have CPU and memory limits and the application image
-  runs as UID `10001`.
+- Container logs rotate at 10 MiB with three files; services have CPU and memory limits and long-running application
+  processes run as UID `10001`. A one-shot root `data-init` only fixes named-volume ownership and then exits.
 
 ## Reporting
 
