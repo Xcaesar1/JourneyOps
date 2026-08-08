@@ -20,6 +20,7 @@ from .nodes import (
     normalize_request,
     persist,
     prepare_research_queries,
+    revise_plan,
     validate_plan,
 )
 from .state import TripState
@@ -47,6 +48,7 @@ def build_journey_graph(
     builder.add_node("draft", make_draft_node(draft_generator))
     builder.add_node("enrich_plan", enrich_plan)
     builder.add_node("deterministic_validate", validate_plan)
+    builder.add_node("revise_plan", revise_plan)
     builder.add_node("persist", persist)
     builder.add_edge(START, "normalize_request")
     builder.add_edge("normalize_request", "prepare_research_queries")
@@ -56,9 +58,21 @@ def build_journey_graph(
     builder.add_edge("plan_intercity_transport", "draft")
     builder.add_edge("draft", "enrich_plan")
     builder.add_edge("enrich_plan", "deterministic_validate")
-    builder.add_edge("deterministic_validate", "persist")
+    builder.add_conditional_edges(
+        "deterministic_validate",
+        _route_after_validation,
+        {"revise_plan": "revise_plan", "persist": "persist"},
+    )
+    builder.add_edge("revise_plan", "enrich_plan")
     builder.add_edge("persist", END)
     return builder.compile(
         checkpointer=checkpointer,
         interrupt_before=list(interrupt_before) if interrupt_before else None,
     )
+
+
+def _route_after_validation(state: TripState) -> str:
+    report = state["validation_report"]
+    if report.has_critical and state.get("revision_count", 0) < 2:
+        return "revise_plan"
+    return "persist"

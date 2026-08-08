@@ -9,9 +9,13 @@ from ..state import TripState
 
 def persist(state: TripState) -> dict[str, Any]:
     report = state["validation_report"]
-    if report.has_critical:
-        raise ValueError("A plan with critical validation issues cannot be finalized.")
     return {
         "final_plan": state["draft_plan"],
-        "metrics": {**state.get("metrics", {}), "persisted": True},
+        "metrics": {
+            **state.get("metrics", {}),
+            "persisted": True,
+            "unresolved_critical_count": sum(
+                issue.severity == "critical" for issue in report.issues
+            ),
+        },
     }

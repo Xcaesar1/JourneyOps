@@ -143,6 +143,7 @@ def test_journey_graph_mermaid_contains_ordered_nodes() -> None:
         "draft",
         "enrich_plan",
         "deterministic_validate",
+        "revise_plan",
         "persist",
     ]
     assert all(node in mermaid for node in expected_nodes)
