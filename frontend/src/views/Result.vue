@@ -87,6 +87,88 @@
               {{ tripPlan.overall_suggestions }}
             </span>
           </div>
+
+          <div
+            v-if="recommendedTransportOptions.length > 0 || tripPlan.validation_report"
+            class="execution-dashboard"
+          >
+            <section v-if="recommendedTransportOptions.length > 0" class="execution-panel transport-panel">
+              <div class="execution-panel-heading">
+                <div>
+                  <span class="execution-eyebrow">{{ t('result.execution.transportEyebrow') }}</span>
+                  <h2>{{ t('result.execution.transportTitle') }}</h2>
+                </div>
+                <span class="route-origin-chip">{{ tripPlan.origin || tripPlan.city }}</span>
+              </div>
+              <div class="transport-option-list">
+                <article
+                  v-for="option in recommendedTransportOptions"
+                  :key="option.option_id"
+                  class="transport-option-card"
+                >
+                  <div class="transport-option-topline">
+                    <span class="transport-leg-index">{{ String(option.leg_index + 1).padStart(2, '0') }}</span>
+                    <span class="transport-mode">{{ getTransportModeLabel(option.mode) }}</span>
+                    <span class="transport-recommended">{{ t('result.execution.recommended') }}</span>
+                  </div>
+                  <div class="transport-route-line">
+                    <strong>{{ option.origin }}</strong>
+                    <span aria-hidden="true">→</span>
+                    <strong>{{ option.destination }}</strong>
+                  </div>
+                  <div class="transport-facts">
+                    <span v-if="option.estimated_duration_minutes">
+                      {{ t('result.execution.duration', { minutes: option.estimated_duration_minutes }) }}
+                    </span>
+                    <span v-if="option.estimated_cost_per_person !== null && option.estimated_cost_per_person !== undefined">
+                      {{ t('result.execution.cost', { currency: option.currency, amount: option.estimated_cost_per_person }) }}
+                    </span>
+                    <span v-else>{{ t('result.execution.unknownCost') }}</span>
+                    <span :class="['estimate-status', `is-${option.estimate_status}`]">
+                      {{ getEstimateStatusLabel(option.estimate_status) }}
+                    </span>
+                  </div>
+                  <p>{{ option.advice }}</p>
+                  <small v-if="option.caveats?.[0]">{{ option.caveats[0] }}</small>
+                </article>
+              </div>
+            </section>
+
+            <section class="execution-panel validation-panel">
+              <div class="execution-panel-heading">
+                <div>
+                  <span class="execution-eyebrow">{{ t('result.execution.validationEyebrow') }}</span>
+                  <h2>{{ t('result.execution.validationTitle') }}</h2>
+                </div>
+                <span class="revision-chip">
+                  {{ t('result.execution.revisionCount', { count: tripPlan.revision_count || 0 }) }}
+                </span>
+              </div>
+              <div class="validation-counts">
+                <div v-for="severity in validationSeverities" :key="severity" :class="['validation-count', `is-${severity}`]">
+                  <strong>{{ validationCounts[severity] }}</strong>
+                  <span>{{ getValidationSeverityLabel(severity) }}</span>
+                </div>
+              </div>
+              <div v-if="topValidationIssues.length > 0" class="validation-issue-list">
+                <article
+                  v-for="issue in topValidationIssues"
+                  :key="`${issue.code}-${issue.day_index ?? 'trip'}-${issue.item_id || ''}`"
+                  :class="['validation-issue', `is-${issue.severity}`]"
+                >
+                  <div>
+                    <span class="validation-severity">{{ getValidationSeverityLabel(issue.severity) }}</span>
+                    <span v-if="issue.day_index !== null && issue.day_index !== undefined" class="validation-day">
+                      {{ t('result.execution.dayIssue', { day: issue.day_index + 1 }) }}
+                    </span>
+                  </div>
+                  <p>{{ issue.message }}</p>
+                  <small v-if="issue.suggested_action">{{ issue.suggested_action }}</small>
+                </article>
+              </div>
+              <div v-else class="validation-empty">{{ t('result.execution.noIssues') }}</div>
+            </section>
+          </div>
         </a-card>
 
         <a-card
@@ -344,6 +426,49 @@
                   <span class="label">{{ t('result.dayAccommodation') }}</span>
                   <span class="value">{{ day.accommodation }}</span>
                 </div>
+              </div>
+
+              <div v-if="issuesForDay(index).length > 0" class="day-validation-strip">
+                <span
+                  v-for="issue in issuesForDay(index)"
+                  :key="`${issue.code}-${issue.item_id || ''}`"
+                  :class="['day-validation-pill', `is-${issue.severity}`]"
+                  :title="issue.suggested_action || issue.message"
+                >
+                  {{ getValidationSeverityLabel(issue.severity) }} · {{ issue.message }}
+                </span>
+              </div>
+
+              <section v-if="day.timeline && day.timeline.length > 0" class="day-timeline-section">
+                <div class="day-section-heading">
+                  <span>{{ t('result.execution.timelineTitle') }}</span>
+                  <strong>{{ day.timeline.length }}</strong>
+                </div>
+                <div class="day-timeline">
+                  <article
+                    v-for="item in day.timeline"
+                    :key="item.item_id"
+                    :class="['timeline-item', `is-${item.item_type}`]"
+                  >
+                    <div class="timeline-time">
+                      <strong>{{ formatTimelineTime(item.start) }}</strong>
+                      <span>{{ formatTimelineTime(item.end) }}</span>
+                    </div>
+                    <span class="timeline-marker"></span>
+                    <div class="timeline-content">
+                      <div>
+                        <span class="timeline-type">{{ getScheduleItemTypeLabel(item.item_type) }}</span>
+                        <strong>{{ item.title }}</strong>
+                      </div>
+                      <span>{{ t('result.execution.minutes', { minutes: item.duration_minutes }) }}</span>
+                    </div>
+                  </article>
+                </div>
+              </section>
+
+              <div v-if="day.arrangement_rationale" class="arrangement-rationale">
+                <span>{{ t('result.execution.whyTitle') }}</span>
+                <p>{{ day.arrangement_rationale }}</p>
               </div>
 
               <!-- 景点安排 -->
@@ -646,7 +771,7 @@ import { EffectCoverflow, Keyboard, Mousewheel } from 'swiper/modules'
 import NavBar from '@/components/NavBar.vue'
 import OverviewAttractionCard from '@/components/OverviewAttractionCard.vue'
 import AIChat from '@/components/AIChat.vue'
-import type { TripPlan, TripPlanResponse, KnowledgeGraphData, GraphCategory, Attraction, Meal, Hotel, WeatherInfo, SourceEvidence, SourceClaimType, SourceTrustLevel } from '@/types'
+import type { TripPlan, TripPlanResponse, KnowledgeGraphData, GraphCategory, Attraction, Meal, Hotel, WeatherInfo, SourceEvidence, SourceClaimType, SourceTrustLevel, IntercityTransportMode, RouteEstimateStatus, ScheduleItemType, ValidationIssue, ValidationSeverity } from '@/types'
 import {
   getRuntimeApiBaseUrl,
   getRuntimeMapJsKey,
@@ -741,6 +866,33 @@ const localeTag = computed(() => {
 })
 
 const sourceEvidence = computed<SourceEvidence[]>(() => tripPlan.value?.source_evidence ?? [])
+const validationSeverities: ValidationSeverity[] = ['critical', 'warning', 'info']
+const recommendedTransportOptions = computed(() => (
+  tripPlan.value?.transport_options
+    ?.filter(option => option.recommended)
+    .sort((left, right) => left.leg_index - right.leg_index) ?? []
+))
+const validationIssues = computed<ValidationIssue[]>(() => tripPlan.value?.validation_report?.issues ?? [])
+const validationCounts = computed<Record<ValidationSeverity, number>>(() => {
+  const counts: Record<ValidationSeverity, number> = { critical: 0, warning: 0, info: 0 }
+  validationIssues.value.forEach((issue) => { counts[issue.severity] += 1 })
+  return counts
+})
+const topValidationIssues = computed(() => validationIssues.value.slice(0, 6))
+
+const issuesForDay = (dayIndex: number): ValidationIssue[] => (
+  validationIssues.value.filter(issue => issue.day_index === dayIndex)
+)
+
+const formatTimelineTime = (value: string): string => {
+  const match = value?.match(/T(\d{2}:\d{2})/)
+  return match?.[1] || value || '--:--'
+}
+
+const getTransportModeLabel = (mode: IntercityTransportMode): string => t(`result.execution.modes.${mode}`)
+const getScheduleItemTypeLabel = (type: ScheduleItemType): string => t(`result.execution.itemTypes.${type}`)
+const getEstimateStatusLabel = (status: RouteEstimateStatus): string => t(`result.execution.${status}`)
+const getValidationSeverityLabel = (severity: ValidationSeverity): string => t(`result.execution.${severity}`)
 
 const formatSourceTime = (rawTime?: string | null): string => {
   if (!rawTime) return t('result.sources.unknownTime')
@@ -4247,6 +4399,213 @@ const drawRoutes = async (AMap: any, attractions: any[]): Promise<any[]> => {
   background-repeat: no-repeat;
 }
 
+/* 端到端交通与确定性校验 */
+.execution-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(340px, 0.8fr);
+  gap: 16px;
+  margin: 18px 0 24px;
+}
+
+.execution-panel {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  background: rgba(4, 12, 18, 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.execution-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.execution-eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: #e79069;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.execution-panel-heading h2 {
+  margin: 0;
+  color: #fff3eb;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(22px, 2.2vw, 32px);
+  font-weight: 500;
+}
+
+.route-origin-chip,
+.revision-chip {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid rgba(215, 110, 66, 0.32);
+  border-radius: 999px;
+  color: #ffd5c6;
+  background: rgba(215, 110, 66, 0.1);
+  font-size: 11px;
+}
+
+.transport-option-list {
+  display: grid;
+  gap: 10px;
+}
+
+.transport-option-card {
+  padding: 14px 15px;
+  border-left: 2px solid #d76e42;
+  border-radius: 4px 12px 12px 4px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.transport-option-topline,
+.transport-facts,
+.transport-route-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.transport-leg-index {
+  color: rgba(255, 255, 255, 0.35);
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+}
+
+.transport-mode {
+  color: #f4d1c2;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.transport-recommended {
+  margin-left: auto;
+  color: #87ddbd;
+  font-size: 11px;
+}
+
+.transport-route-line {
+  margin: 10px 0 8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 16px;
+}
+
+.transport-route-line span {
+  color: #d76e42;
+}
+
+.transport-facts {
+  flex-wrap: wrap;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+}
+
+.estimate-status {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.estimate-status.is-verified { color: #76ddb2; }
+.estimate-status.is-estimated { color: #f6c977; }
+.estimate-status.is-unavailable { color: #f2a58d; }
+
+.transport-option-card p {
+  margin: 10px 0 4px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.transport-option-card small {
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.validation-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.validation-count {
+  padding: 11px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.validation-count strong,
+.validation-count span {
+  display: block;
+}
+
+.validation-count strong {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.validation-count span {
+  margin-top: 5px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 10px;
+}
+
+.validation-count.is-critical strong { color: #ff8777; }
+.validation-count.is-warning strong { color: #f4c56c; }
+.validation-count.is-info strong { color: #73bde5; }
+
+.validation-issue-list {
+  display: grid;
+  gap: 7px;
+}
+
+.validation-issue {
+  padding: 9px 10px;
+  border-left: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.validation-issue.is-critical { border-color: #ff6f61; }
+.validation-issue.is-warning { border-color: #e8b957; }
+.validation-issue.is-info { border-color: #62acd5; }
+
+.validation-severity,
+.validation-day {
+  margin-right: 8px;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.validation-issue p {
+  margin: 4px 0 2px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.validation-issue small {
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 10px;
+}
+
+.validation-empty {
+  padding: 24px 12px;
+  color: #7cdbb3;
+  text-align: center;
+}
+
 /* 每日行程卡片 */
 .days-card {
   margin-top: 20px;
@@ -4344,6 +4703,166 @@ const drawRoutes = async (AMap: any, attractions: any[]): Promise<any[]> => {
 .info-row .value {
   color: rgba(255, 255, 255, 0.8);
   flex: 1;
+}
+
+.day-validation-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -6px 0 18px;
+}
+
+.day-validation-pill {
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.day-validation-pill.is-critical { border-color: rgba(255, 111, 97, 0.5); color: #ffaaa0; }
+.day-validation-pill.is-warning { border-color: rgba(232, 185, 87, 0.5); color: #f2d28e; }
+.day-validation-pill.is-info { border-color: rgba(98, 172, 213, 0.45); color: #9acfeb; }
+
+.day-timeline-section {
+  margin: 4px 0 18px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.day-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.day-section-heading strong {
+  color: #d98a67;
+  font-family: 'Courier New', monospace;
+}
+
+.day-timeline {
+  display: grid;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 58px 14px minmax(0, 1fr);
+  min-height: 48px;
+  gap: 10px;
+}
+
+.timeline-time {
+  padding-top: 2px;
+  text-align: right;
+}
+
+.timeline-time strong,
+.timeline-time span {
+  display: block;
+  font-family: 'Courier New', monospace;
+}
+
+.timeline-time strong {
+  color: #fff1ea;
+  font-size: 12px;
+}
+
+.timeline-time span {
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.34);
+  font-size: 9px;
+}
+
+.timeline-marker {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border: 2px solid #d76e42;
+  border-radius: 50%;
+}
+
+.timeline-marker::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  left: 2px;
+  width: 1px;
+  height: 35px;
+  background: rgba(215, 110, 66, 0.3);
+}
+
+.timeline-item:last-child .timeline-marker::after { display: none; }
+.timeline-item.is-transport .timeline-marker { border-color: #e8b957; }
+.timeline-item.is-meal .timeline-marker { border-color: #6bc6a1; }
+.timeline-item.is-free_time .timeline-marker { border-color: #6d9fb9; }
+
+.timeline-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.timeline-content > div {
+  min-width: 0;
+}
+
+.timeline-content strong {
+  display: block;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.timeline-type {
+  display: block;
+  margin-bottom: 1px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.timeline-content > span {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 10px;
+}
+
+.arrangement-rationale {
+  margin: 0 0 18px;
+  padding: 13px 15px;
+  border-left: 2px solid #5ad8a6;
+  background: rgba(90, 216, 166, 0.06);
+}
+
+.arrangement-rationale span {
+  color: #75d9b2;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.arrangement-rationale p {
+  margin: 5px 0 0;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 /* 卡片样式 - 玻璃拟态暗色 */
@@ -4786,6 +5305,33 @@ const drawRoutes = async (AMap: any, attractions: any[]): Promise<any[]> => {
 
   .top-info-section {
     flex-direction: column;
+  }
+
+  .execution-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .execution-panel {
+    padding: 16px;
+  }
+
+  .execution-panel-heading {
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .transport-route-line {
+    font-size: 14px;
+  }
+
+  .timeline-item {
+    grid-template-columns: 50px 12px minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .timeline-content {
+    flex-direction: column;
+    gap: 3px;
   }
 
   .sources-header {

@@ -20,6 +20,10 @@ export interface Attraction {
   rating?: number
   image_url?: string
   ticket_price?: number
+  opening_time?: string | null
+  closing_time?: string | null
+  closed_dates?: string[]
+  source_evidence_ids?: string[]
 }
 
 export interface Meal {
@@ -63,6 +67,75 @@ export interface DayPlan {
   hotel?: Hotel
   attractions: Attraction[]
   meals: Meal[]
+  timeline?: ScheduleItem[]
+  arrangement_rationale?: string
+}
+
+export type ScheduleItemType = 'attraction' | 'meal' | 'transport' | 'free_time'
+
+export interface ScheduleItem {
+  item_id: string
+  item_type: ScheduleItemType
+  title: string
+  start: string
+  end: string
+  duration_minutes: number
+  location?: Location | null
+  reference_name?: string | null
+  route_estimate_id?: string | null
+  estimated_cost: number
+  opening_time?: string | null
+  closing_time?: string | null
+  closed_dates?: string[]
+  source_evidence_ids?: string[]
+}
+
+export type RouteEstimateStatus = 'verified' | 'estimated' | 'unavailable'
+
+export interface RouteEstimate {
+  estimate_id: string
+  origin: string
+  destination: string
+  mode: 'driving' | 'walking' | 'straight_line'
+  distance_meters?: number | null
+  duration_minutes?: number | null
+  provider: string
+  status: RouteEstimateStatus
+  detail: string
+}
+
+export type IntercityTransportMode = 'train' | 'flight' | 'coach' | 'driving' | 'public_transit'
+
+export interface IntercityTransportOption {
+  option_id: string
+  leg_index: number
+  origin: string
+  destination: string
+  mode: IntercityTransportMode
+  recommended: boolean
+  estimated_duration_minutes?: number | null
+  estimated_cost_per_person?: number | null
+  currency: string
+  route_estimate_id?: string | null
+  estimate_status: RouteEstimateStatus
+  advice: string
+  caveats: string[]
+}
+
+export type ValidationSeverity = 'critical' | 'warning' | 'info'
+
+export interface ValidationIssue {
+  code: string
+  severity: ValidationSeverity
+  day_index?: number | null
+  item_id?: string | null
+  message: string
+  evidence_ids: string[]
+  suggested_action?: string | null
+}
+
+export interface ValidationReport {
+  issues: ValidationIssue[]
 }
 
 export interface WeatherInfo {
@@ -102,12 +175,16 @@ export interface TripPlan {
   start_date: string
   end_date: string
   days: DayPlan[]
+  transport_options?: IntercityTransportOption[]
+  route_matrix?: RouteEstimate[]
   weather_info: WeatherInfo[]
   overall_suggestions: string
   budget?: Budget
   source_evidence?: SourceEvidence[]
   research_updated_at?: string | null
   research_status?: 'complete' | 'partial' | 'unavailable'
+  validation_report?: ValidationReport
+  revision_count?: number
 }
 
 export interface TripFormData {
