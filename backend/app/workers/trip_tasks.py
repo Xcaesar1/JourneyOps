@@ -9,6 +9,7 @@ import re
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from time import perf_counter
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -28,6 +29,7 @@ from ..db.repository import (
     mark_review_applied,
     next_trip_version,
     record_pending_review,
+    record_telemetry_event,
     review_public_payload,
     save_trip_version,
     stale_recoverable_tasks,
@@ -39,6 +41,12 @@ from ..domain.research_models import SourceEvidence
 from ..domain.review_models import ReplanRequestV2
 from ..domain.trip_models import TripPlanV2, TripRequestV2
 from ..models.schemas import CityStay, TripPlanResponse, TripRequest
+from ..services.observability import (
+    PROMPT_VERSION,
+    TOOL_VERSIONS,
+    WORKFLOW_VERSION,
+    sanitize_metadata,
+)
 from ..services.task_events import publish_task_event, redis_url, task_snapshot
 from .celery_app import celery_app
 
@@ -84,6 +92,11 @@ class PlannerExecution:
     diff_payload: dict[str, Any] | None = None
     validation_report: dict[str, Any] | None = None
     refreshed_sources: tuple[str, ...] = ()
+    model_id: str = "unknown"
+    prompt_version: str = "legacy"
+    workflow_version: str = "legacy"
+    tool_versions: dict[str, str] | None = None
+    metrics: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -347,6 +360,18 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
         attempt_count = task.attempt_count
         max_attempts = task.max_attempts
         trip_id = task.trip_id
+        trace_id = task.trace_id
+        record_telemetry_event(
+            session,
+            trace_id=trace_id,
+            task_id=task_id,
+            trip_id=trip_id,
+            component="worker",
+            operation="task_attempt",
+            status="started",
+            retry_count=max(0, attempt_count - 1),
+            workflow_version=WORKFLOW_VERSION,
+        )
 
     async def progress_callback(stage: str, message: str, progress: int) -> None:
         with SessionLocal() as progress_session:
@@ -392,6 +417,14 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
             )
         result_payload = planner_runs.primary.client_payload
         primary = planner_runs.primary
+        with SessionLocal() as telemetry_session:
+            _persist_execution_telemetry(
+                telemetry_session,
+                trace_id=trace_id,
+                task_id=task_id,
+                trip_id=trip_id,
+                execution=primary,
+            )
         if primary.workflow_status == "awaiting_approval":
             if primary.native_payload is None or primary.review_thread_id is None:
                 raise RuntimeError("Interrupted planner did not provide a reviewable native proposal.")
@@ -472,6 +505,11 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                 change_reason=(persisted_review.reason if persisted_review else "Initial plan"),
                 change_sources=primary.refreshed_sources,
                 validation_report=primary.validation_report or {},
+                model_id=primary.model_id,
+                prompt_version=primary.prompt_version,
+                workflow_version=primary.workflow_version,
+                tool_versions=primary.tool_versions or {},
+                usage_summary=_usage_summary(primary.metrics),
                 activate=True,
             )
             if planner_runs.comparison is not None:
@@ -486,6 +524,11 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                     schema_version=comparison.schema_version,
                     native_payload=comparison.native_payload,
                     source_evidence=comparison.source_evidence,
+                    model_id=comparison.model_id,
+                    prompt_version=comparison.prompt_version,
+                    workflow_version=comparison.workflow_version,
+                    tool_versions=comparison.tool_versions or {},
+                    usage_summary=_usage_summary(comparison.metrics),
                 )
             if persisted_review is not None:
                 applied = mark_review_applied(session, persisted_review.id)
@@ -502,6 +545,19 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                 message="Trip plan generated successfully.",
                 result_payload=result_payload,
                 finished=True,
+            )
+            record_telemetry_event(
+                session,
+                trace_id=trace_id,
+                task_id=task_id,
+                trip_id=trip_id,
+                component="worker",
+                operation="task_attempt",
+                status="completed",
+                retry_count=max(0, attempt_count - 1),
+                model_id=primary.model_id,
+                prompt_version=primary.prompt_version,
+                workflow_version=primary.workflow_version,
             )
             publish_task_event(completed)
             return task_snapshot(completed)
@@ -532,6 +588,17 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                     error_code="planner_retry",
                     error_message=_safe_error_message(exc),
                 )
+                record_telemetry_event(
+                    session,
+                    trace_id=trace_id,
+                    task_id=task_id,
+                    trip_id=trip_id,
+                    component="worker",
+                    operation="task_attempt",
+                    status="retrying",
+                    retry_count=max(0, attempt_count - 1),
+                    metadata={"error_type": type(exc).__name__},
+                )
                 publish_task_event(retrying)
             raise self.retry(
                 exc=exc,
@@ -549,6 +616,17 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                 error_code="planner_failed",
                 error_message=_safe_error_message(exc),
                 finished=True,
+            )
+            record_telemetry_event(
+                session,
+                trace_id=trace_id,
+                task_id=task_id,
+                trip_id=trip_id,
+                component="worker",
+                operation="task_attempt",
+                status="failed",
+                retry_count=max(0, attempt_count - 1),
+                metadata={"error_type": type(exc).__name__},
             )
             publish_task_event(failed)
             return task_snapshot(failed)
@@ -631,10 +709,15 @@ async def _run_engine(
 ) -> PlannerExecution:
     if engine == "legacy":
         result = await _run_legacy_planner(task_id, payload, progress_callback)
+        settings = get_settings()
         return PlannerExecution(
             engine="legacy",
             client_payload=result,
             schema_version="legacy",
+            model_id=settings.openai_model,
+            prompt_version="legacy-unversioned",
+            workflow_version="legacy-adapter/phase7",
+            tool_versions={},
         )
     return await _run_journey_graph_planner(
         task_id,
@@ -729,7 +812,9 @@ async def _run_journey_graph_planner(
             waiting = bool(graph.get_state(config).next)
         return dict(state), waiting
 
+    started = perf_counter()
     state, waiting = await asyncio.to_thread(invoke_graph)
+    graph_latency_ms = round((perf_counter() - started) * 1000)
     plan = TripPlanV2.model_validate(state.get("final_plan") or state["draft_plan"])
     client_response = await _build_client_payload(task_id, request, plan, progress_callback)
     workflow_status: Literal["completed", "awaiting_approval", "rejected"] = "completed"
@@ -749,6 +834,11 @@ async def _run_journey_graph_planner(
         review_proposed_version=1,
         review_reason=(review_context.reason if review_context else "Initial plan review"),
         validation_report=plan.validation_report.model_dump(mode="json"),
+        model_id=get_settings().openai_model,
+        prompt_version=PROMPT_VERSION,
+        workflow_version=WORKFLOW_VERSION,
+        tool_versions=TOOL_VERSIONS,
+        metrics={**state.get("metrics", {}), "graph_latency_ms": graph_latency_ms},
     )
 
 
@@ -825,7 +915,9 @@ async def _run_replan_planner(
             waiting = bool(graph.get_state(config).next)
         return dict(state), waiting
 
+    started = perf_counter()
     state, waiting = await asyncio.to_thread(invoke_graph)
+    graph_latency_ms = round((perf_counter() - started) * 1000)
     plan = TripPlanV2.model_validate(state.get("final_plan") or state["draft_plan"])
     client_response = await _build_client_payload(task_id, request, plan, progress_callback)
     workflow_status: Literal["completed", "awaiting_approval", "rejected"] = "completed"
@@ -851,6 +943,11 @@ async def _run_replan_planner(
         diff_payload=(diff.model_dump(mode="json") if diff is not None else {}),
         validation_report=plan.validation_report.model_dump(mode="json"),
         refreshed_sources=tuple(state.get("refreshed_sources", [])),
+        model_id=get_settings().openai_model,
+        prompt_version=PROMPT_VERSION,
+        workflow_version=WORKFLOW_VERSION,
+        tool_versions=TOOL_VERSIONS,
+        metrics={**state.get("metrics", {}), "graph_latency_ms": graph_latency_ms},
     )
 
 
@@ -920,6 +1017,83 @@ def _to_legacy_request(payload: dict[str, Any]) -> TripRequest:
         free_text_input=free_text,
         language=payload.get("language", "zh"),
     )
+
+
+def _usage_summary(metrics: dict[str, Any] | None) -> dict[str, Any]:
+    """Extract stable numeric usage fields for an immutable version manifest."""
+    generation = (metrics or {}).get("model_generation", {})
+    return {
+        key: generation.get(key, 0)
+        for key in (
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "model_cost_usd",
+            "latency_ms",
+            "retry_count",
+        )
+    }
+
+
+def _persist_execution_telemetry(
+    session: Any,
+    *,
+    trace_id: str,
+    task_id: str,
+    trip_id: str,
+    execution: PlannerExecution,
+) -> None:
+    metrics = execution.metrics or {}
+    generation = metrics.get("model_generation", {})
+    record_telemetry_event(
+        session,
+        trace_id=trace_id,
+        task_id=task_id,
+        trip_id=trip_id,
+        component="planner",
+        operation="engine_run",
+        status=generation.get("status", "completed"),
+        node="draft" if execution.engine == "journey_graph" else "legacy_planner",
+        latency_ms=int(metrics.get("graph_latency_ms", generation.get("latency_ms", 0)) or 0),
+        input_tokens=int(generation.get("input_tokens", 0) or 0),
+        output_tokens=int(generation.get("output_tokens", 0) or 0),
+        total_tokens=int(generation.get("total_tokens", 0) or 0),
+        model_cost_usd=float(generation.get("model_cost_usd", 0) or 0),
+        retry_count=int(generation.get("retry_count", 0) or 0),
+        model_id=execution.model_id,
+        prompt_version=execution.prompt_version,
+        workflow_version=execution.workflow_version,
+        metadata=sanitize_metadata(
+            {
+                "engine": execution.engine,
+                "schema_version": execution.schema_version,
+                "workflow_status": execution.workflow_status,
+            }
+        ),
+    )
+    for provider_call in metrics.get("research_provider_calls", []):
+        provider = str(provider_call.get("provider", "unknown"))[:120]
+        record_telemetry_event(
+            session,
+            trace_id=trace_id,
+            task_id=task_id,
+            trip_id=trip_id,
+            component="tool",
+            operation="research_provider_call",
+            status="completed" if provider_call.get("success") else "failed",
+            node="research",
+            tool=provider,
+            latency_ms=int(provider_call.get("latency_ms", 0) or 0),
+            cache_hit=bool(provider_call.get("cache_hit", False)),
+            workflow_version=execution.workflow_version,
+            tool_version=(execution.tool_versions or {}).get("web_research"),
+            metadata=sanitize_metadata(
+                {
+                    "error_code": provider_call.get("error_code"),
+                    "query_id": provider_call.get("query_id"),
+                }
+            ),
+        )
 
 
 def _safe_error_message(exc: Exception) -> str:

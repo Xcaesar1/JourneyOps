@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     planner_engine: Literal["legacy", "journey_graph"] = "legacy"
     planner_compare_engines: bool = False
 
+    # Phase 7 observability and budget accounting. Prices are operator-supplied.
+    llm_input_cost_per_million_usd: float = Field(default=0, ge=0)
+    llm_output_cost_per_million_usd: float = Field(default=0, ge=0)
+
     # 日志配置
     log_level: str = "INFO"
 

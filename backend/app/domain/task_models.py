@@ -12,6 +12,7 @@ from .review_models import TripReviewRecordV2
 TRIP_TASK_RECORD_V2_EXAMPLE: dict[str, Any] = {
     "task_id": "task_1234567890ab",
     "trip_id": "trip_1234567890ab",
+    "trace_id": "trace_1234567890abcdef",
     "status": "queued",
     "stage": "queued",
     "progress": 0,
@@ -54,6 +55,7 @@ class TripTaskRecordV2(BaseModel):
 
     task_id: str = Field(..., description="Durable task identifier.")
     trip_id: str = Field(..., description="Durable trip identifier.")
+    trace_id: str = Field(..., description="Correlation identifier spanning API, worker, nodes, and tools.")
     status: TaskStatusV2
     stage: str
     progress: int = Field(..., ge=0, le=100)

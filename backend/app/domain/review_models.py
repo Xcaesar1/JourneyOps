@@ -157,6 +157,11 @@ class TripVersionRecordV2(BaseModel):
     change_reason: str = ""
     change_sources: list[str] = Field(default_factory=list)
     validation_report: ValidationReportV2 = Field(default_factory=ValidationReportV2)
+    model_id: str = "unknown"
+    prompt_version: str = "legacy"
+    workflow_version: str = "legacy"
+    tool_versions: dict[str, str] = Field(default_factory=dict)
+    usage_summary: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     payload: dict[str, Any] | None = None
     native_payload: dict[str, Any] | None = None

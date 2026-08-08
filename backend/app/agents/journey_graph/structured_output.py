@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from time import perf_counter
 from typing import Any
 
 from openai import OpenAI
@@ -11,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 
 from ...config import get_settings
 from ...domain.trip_models import TripPlanV2
+from ...services.observability import PROMPT_VERSION, calculate_model_cost
 from .state import TripState
 
 
@@ -95,12 +97,14 @@ class NativeJsonPlanGenerator:
         self._model = model
         self._max_tokens = max_tokens
         self._max_attempts = max_attempts
+        self.last_metrics: dict[str, Any] = {}
 
     def __call__(self, state: TripState) -> TripPlanV2:
         messages = _prompt_messages(state)
         failure_reason = "unknown"
 
-        for _attempt in range(1, self._max_attempts + 1):
+        started = perf_counter()
+        for attempt in range(1, self._max_attempts + 1):
             try:
                 response = self._client.chat.completions.create(
                     model=self._model,
@@ -127,11 +131,42 @@ class NativeJsonPlanGenerator:
                 continue
 
             try:
-                return TripPlanV2.model_validate_json(content)
+                plan = TripPlanV2.model_validate_json(content)
+                usage = getattr(response, "usage", None)
+                input_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+                output_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+                settings = get_settings()
+                self.last_metrics = {
+                    "model_id": self._model,
+                    "prompt_version": PROMPT_VERSION,
+                    "latency_ms": round((perf_counter() - started) * 1000),
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_tokens": int(
+                        getattr(usage, "total_tokens", 0) or input_tokens + output_tokens
+                    ),
+                    "model_cost_usd": calculate_model_cost(
+                        input_tokens,
+                        output_tokens,
+                        input_per_million_usd=settings.llm_input_cost_per_million_usd,
+                        output_per_million_usd=settings.llm_output_cost_per_million_usd,
+                    ),
+                    "retry_count": attempt - 1,
+                    "status": "success",
+                }
+                return plan
             except ValidationError as exc:
                 error_types = sorted({error["type"] for error in exc.errors()})
                 failure_reason = f"schema_validation:{','.join(error_types)}"
 
+        self.last_metrics = {
+            "model_id": self._model,
+            "prompt_version": PROMPT_VERSION,
+            "latency_ms": round((perf_counter() - started) * 1000),
+            "retry_count": self._max_attempts - 1,
+            "status": "failed",
+            "failure_reason": failure_reason,
+        }
         raise StructuredPlanGenerationError(
             "Structured plan generation failed after "
             f"{self._max_attempts} attempts ({failure_reason})."

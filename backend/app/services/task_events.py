@@ -32,6 +32,7 @@ def task_snapshot(task: TripTask) -> dict[str, Any]:
     return {
         "task_id": task.id,
         "trip_id": task.trip_id,
+        "trace_id": task.trace_id,
         "status": task.status,
         "stage": task.stage,
         "progress": task.progress,

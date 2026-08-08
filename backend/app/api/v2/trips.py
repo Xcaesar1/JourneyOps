@@ -12,6 +12,7 @@ from fastapi import (
     Depends,
     Header,
     HTTPException,
+    Request,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -29,6 +30,7 @@ from ...db.repository import (
     get_task,
     get_trip,
     get_trip_version,
+    list_task_telemetry,
     list_trip_reviews,
     list_trip_versions,
     prepare_retry,
@@ -46,6 +48,7 @@ from ...domain.error_models import (
     V2_VALIDATION_ERROR_EXAMPLE,
     ErrorEnvelopeV2,
 )
+from ...domain.observability_models import TelemetryEventV2
 from ...domain.review_models import (
     PlanDiffV2,
     TripReviewDecisionV2,
@@ -55,6 +58,7 @@ from ...domain.review_models import (
 )
 from ...domain.task_models import TRIP_TASK_RECORD_V2_EXAMPLE, TripTaskRecordV2
 from ...domain.trip_models import TRIP_REQUEST_V2_EXAMPLE, TripPlanV2, TripRequestV2
+from ...services.observability import sanitize_metadata
 from ...services.replanning import diff_plans
 from ...services.task_events import (
     TASK_STREAM_STOP_STATUSES,
@@ -103,6 +107,7 @@ DbSession = Annotated[Session, Depends(get_db_session)]
 )
 def create_trip(
     session: DbSession,
+    http_request: Request,
     request: TripRequestV2 = Body(
         ...,
         openapi_examples={
@@ -121,6 +126,7 @@ def create_trip(
             session,
             request_payload=payload,
             idempotency_key=_digest_idempotency_key(payload, idempotency_key),
+            trace_id=http_request.state.trace_id,
         )
     except IdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -138,6 +144,42 @@ def create_trip(
 def read_task(task_id: str, session: DbSession) -> TripTaskRecordV2:
     """Read current state from PostgreSQL, never from process memory."""
     return _response(_required_task(session, task_id))
+
+
+@router.get(
+    "/tasks/{task_id}/telemetry",
+    response_model=list[TelemetryEventV2],
+    summary="Read sanitized task telemetry",
+)
+def read_task_telemetry(task_id: str, session: DbSession) -> list[TelemetryEventV2]:
+    """Expose operational metrics only; prompts, credentials, and outputs are never stored."""
+    _required_task(session, task_id)
+    return [
+        TelemetryEventV2(
+            trace_id=event.trace_id,
+            task_id=event.task_id,
+            trip_id=event.trip_id,
+            component=event.component,
+            operation=event.operation,
+            status=event.status,
+            node=event.node,
+            tool=event.tool,
+            latency_ms=event.latency_ms,
+            input_tokens=event.input_tokens,
+            output_tokens=event.output_tokens,
+            total_tokens=event.total_tokens,
+            model_cost_usd=event.model_cost_usd,
+            retry_count=event.retry_count,
+            cache_hit=event.cache_hit,
+            model_id=event.model_id,
+            prompt_version=event.prompt_version,
+            workflow_version=event.workflow_version,
+            tool_version=event.tool_version,
+            metadata=sanitize_metadata(event.event_metadata),
+            created_at=event.created_at,
+        )
+        for event in list_task_telemetry(session, task_id)
+    ]
 
 
 @router.post(
@@ -402,6 +444,11 @@ def _version_response(
         change_reason=version.change_reason or "",
         change_sources=version.change_sources or [],
         validation_report=version.validation_report or {"issues": []},
+        model_id=version.model_id,
+        prompt_version=version.prompt_version,
+        workflow_version=version.workflow_version,
+        tool_versions=version.tool_versions or {},
+        usage_summary=version.usage_summary or {},
         created_at=version.created_at,
         payload=version.payload if detail else None,
         native_payload=version.native_payload if detail else None,

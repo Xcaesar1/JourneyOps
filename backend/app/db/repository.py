@@ -20,6 +20,7 @@ from .models import (
     TripReview,
     TripSourceLink,
     TripTask,
+    TripTelemetryEvent,
     TripVersion,
 )
 
@@ -36,6 +37,7 @@ def create_or_get_task(
     request_payload: dict[str, Any],
     idempotency_key: str,
     max_attempts: int = 3,
+    trace_id: str | None = None,
 ) -> tuple[TripTask, bool]:
     """Create a trip and task atomically, or return the idempotent existing task."""
     existing_trip = session.scalar(select(Trip).where(Trip.idempotency_key == idempotency_key))
@@ -51,6 +53,7 @@ def create_or_get_task(
     task = TripTask(
         id=f"task_{uuid4().hex[:20]}",
         trip=trip,
+        trace_id=trace_id or f"trace_{uuid4().hex}",
         status="queued",
         stage="queued",
         progress=0,
@@ -201,6 +204,11 @@ def save_trip_version(
     change_reason: str = "",
     change_sources: Sequence[str] = (),
     validation_report: dict[str, Any] | None = None,
+    model_id: str = "unknown",
+    prompt_version: str = "legacy",
+    workflow_version: str = "legacy",
+    tool_versions: dict[str, str] | None = None,
+    usage_summary: dict[str, Any] | None = None,
     activate: bool = False,
 ) -> TripVersion:
     """Insert one immutable version, returning the existing row on redelivery."""
@@ -232,6 +240,11 @@ def save_trip_version(
         change_reason=change_reason,
         change_sources=list(change_sources),
         validation_report=validation_report or {},
+        model_id=model_id,
+        prompt_version=prompt_version,
+        workflow_version=workflow_version,
+        tool_versions=tool_versions or {},
+        usage_summary=usage_summary or {},
     )
     session.add(record)
     try:
@@ -256,6 +269,71 @@ def save_trip_version(
         return existing
     session.refresh(record)
     return record
+
+
+def record_telemetry_event(
+    session: Session,
+    *,
+    trace_id: str,
+    task_id: str,
+    trip_id: str,
+    component: str,
+    operation: str,
+    status: str,
+    node: str | None = None,
+    tool: str | None = None,
+    latency_ms: int = 0,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    total_tokens: int = 0,
+    model_cost_usd: float = 0,
+    retry_count: int = 0,
+    cache_hit: bool | None = None,
+    model_id: str | None = None,
+    prompt_version: str | None = None,
+    workflow_version: str | None = None,
+    tool_version: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> TripTelemetryEvent:
+    """Persist one sanitized event; callers must not pass prompts or result payloads."""
+    record = TripTelemetryEvent(
+        trace_id=trace_id,
+        task_id=task_id,
+        trip_id=trip_id,
+        component=component,
+        operation=operation,
+        status=status,
+        node=node,
+        tool=tool,
+        latency_ms=max(0, latency_ms),
+        input_tokens=max(0, input_tokens),
+        output_tokens=max(0, output_tokens),
+        total_tokens=max(0, total_tokens),
+        model_cost_usd=max(0, model_cost_usd),
+        retry_count=max(0, retry_count),
+        cache_hit=cache_hit,
+        model_id=model_id,
+        prompt_version=prompt_version,
+        workflow_version=workflow_version,
+        tool_version=tool_version,
+        event_metadata=metadata or {},
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return record
+
+
+def list_task_telemetry(session: Session, task_id: str) -> list[TripTelemetryEvent]:
+    """Return ordered events for one task, bounded to prevent unbounded API responses."""
+    return list(
+        session.scalars(
+            select(TripTelemetryEvent)
+            .where(TripTelemetryEvent.task_id == task_id)
+            .order_by(TripTelemetryEvent.created_at, TripTelemetryEvent.id)
+            .limit(1000)
+        )
+    )
 
 
 def _save_source_links(

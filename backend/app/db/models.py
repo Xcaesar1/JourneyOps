@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import (
     JSON,
@@ -63,6 +64,9 @@ class TripTask(Base):
         ForeignKey("trips.id", ondelete="CASCADE"), nullable=False, unique=True, index=True
     )
     celery_task_id: Mapped[str | None] = mapped_column(String(64), unique=True)
+    trace_id: Mapped[str] = mapped_column(
+        String(64), default=lambda: f"trace_{uuid4().hex}", nullable=False, unique=True, index=True
+    )
     status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
     stage: Mapped[str] = mapped_column(String(64), default="queued", nullable=False)
     progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -117,6 +121,11 @@ class TripVersion(Base):
     change_reason: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
     change_sources: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     validation_report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    model_id: Mapped[str] = mapped_column(String(160), default="unknown", nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(80), default="legacy", nullable=False)
+    workflow_version: Mapped[str] = mapped_column(String(80), default="legacy", nullable=False)
+    tool_versions: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, nullable=False)
+    usage_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     trip: Mapped[Trip] = relationship(back_populates="versions")
@@ -124,6 +133,40 @@ class TripVersion(Base):
         back_populates="trip_version",
         cascade="all, delete-orphan",
     )
+
+
+class TripTelemetryEvent(Base):
+    """Sanitized operational event correlated across API, worker, node, and tool."""
+
+    __tablename__ = "trip_telemetry_events"
+    __table_args__ = (Index("ix_trip_telemetry_task_created_at", "task_id", "created_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    task_id: Mapped[str] = mapped_column(
+        ForeignKey("trip_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    trip_id: Mapped[str] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"), nullable=False
+    )
+    component: Mapped[str] = mapped_column(String(64), nullable=False)
+    operation: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    node: Mapped[str | None] = mapped_column(String(120))
+    tool: Mapped[str | None] = mapped_column(String(120))
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    model_cost_usd: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cache_hit: Mapped[bool | None] = mapped_column(Boolean)
+    model_id: Mapped[str | None] = mapped_column(String(160))
+    prompt_version: Mapped[str | None] = mapped_column(String(80))
+    workflow_version: Mapped[str | None] = mapped_column(String(80))
+    tool_version: Mapped[str | None] = mapped_column(String(80))
+    event_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
 
 class SourceEvidenceRecord(Base):

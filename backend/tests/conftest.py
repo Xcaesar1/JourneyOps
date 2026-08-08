@@ -10,6 +10,7 @@ from backend.app.api.routes import trip as legacy_trip_routes
 from backend.app.api.v2 import trips as v2_trip_routes
 from backend.app.db.base import Base
 from backend.app.db.session import get_db_session
+from backend.app.services.observability import install_trace_middleware
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -56,6 +57,7 @@ def api_app(
     monkeypatch.setattr(legacy_trip_routes, "publish_task_event", lambda *_args, **_kwargs: None)
     app = FastAPI()
     register_api_exception_handlers(app)
+    install_trace_middleware(app)
     app.include_router(legacy_trip_routes.router, prefix="/api")
     app.include_router(v2_trip_routes.router, prefix="/api/v2")
 

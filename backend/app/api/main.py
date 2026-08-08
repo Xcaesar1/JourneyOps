@@ -12,6 +12,7 @@ from .errors import is_v2_path, register_api_exception_handlers
 from .routes import trip, poi, map as map_routes, chat, settings as settings_routes
 from .health import router as health_router
 from .v2 import trips as v2_trips
+from ..services.observability import install_trace_middleware
 
 # 强制 stdout/stderr 使用 UTF-8，防止非 UTF-8 控制台（如 cp932）输出中文时崩溃
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
@@ -33,6 +34,7 @@ app = FastAPI(
 )
 
 register_api_exception_handlers(app)
+install_trace_middleware(app)
 
 @app.middleware("http")
 async def intercept_proxy_path(request: Request, call_next):
