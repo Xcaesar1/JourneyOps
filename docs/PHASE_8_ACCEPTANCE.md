@@ -33,7 +33,7 @@ start another phase. The legacy Planner implementation remains unchanged.
 | Screenshots | `docs/assets/phase8/01-form.png` through `04-version.png` | Passed |
 | Production isolation | original container ID, image, restart count and home hash unchanged | Passed |
 | GitHub CI | run `31260998555` for `f6ec417` | Passed |
-| Release tag | requires explicit owner confirmation | Not published |
+| Release tag | `v3.0.0-rc.1` on verified commit `07c9717` | Published as GitHub Prerelease |
 
 ## Oracle Evidence
 
@@ -74,6 +74,6 @@ errors or warnings.
 
 ## Release Boundary
 
-The implementation may be committed and pushed to `staging`. A version tag or GitHub Release is a public
-publishing action and must not be created until the repository owner explicitly approves the final release name
-and contents.
+The repository owner approved `v3.0.0-rc.1`; the annotated tag remains fixed on verified commit `07c9717` and
+the GitHub Release is published as a prerelease. This approval does not authorize production promotion, legacy
+data migration or movement of the release tag.
