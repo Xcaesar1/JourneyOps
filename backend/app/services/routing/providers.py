@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from hashlib import sha256
 from typing import Any
@@ -48,6 +49,8 @@ class AmapRouteEstimateProvider:
         timeout_seconds: float = 10,
         client: httpx.Client | None = None,
     ) -> None:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
         self._api_key = api_key.strip()
         self._timeout_seconds = timeout_seconds
         self._client = client

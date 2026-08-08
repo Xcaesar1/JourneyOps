@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 from backend.app.agents.journey_graph.nodes import make_plan_intercity_transport_node
 from backend.app.agents.journey_graph.nodes.normalize import normalize_request
@@ -61,6 +63,29 @@ def test_amap_route_provider_degrades_without_exposing_provider_payload() -> Non
     assert result.status == "unavailable"
     assert "test-key" not in result.detail
     assert "INVALID_USER_KEY" not in result.detail
+
+
+def test_amap_route_provider_suppresses_query_credentials_in_http_logs(caplog) -> None:
+    secret = "test-query-secret-123456"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/geocode/geo"):
+            return httpx.Response(
+                200,
+                json={"status": "1", "geocodes": [{"location": "120.0,30.0"}]},
+            )
+        return httpx.Response(
+            200,
+            json={"status": "1", "results": [{"distance": "1000", "duration": "600"}]},
+        )
+
+    caplog.set_level(logging.INFO, logger="httpx")
+    client = _client(handler)
+    result = AmapRouteEstimateProvider(secret, client=client).estimate("A", "B")
+    client.close()
+
+    assert result.status == "verified"
+    assert secret not in caplog.text
 
 
 def test_intercity_node_builds_origin_and_between_destination_legs() -> None:
