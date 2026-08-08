@@ -79,6 +79,28 @@ def test_draft_node_returns_typed_plan() -> None:
     assert result["metrics"]["drafted"] is True
 
 
+def test_draft_node_preserves_request_identity_over_model_output() -> None:
+    state = _normalized_state()
+    state.update(make_plan_intercity_transport_node(NoopRouteEstimateProvider())(state))
+
+    def untrusted_generator(_: dict) -> TripPlanV2:
+        return build_placeholder_plan(state).model_copy(
+            update={
+                "origin": r"\u0053\u0068\u0061\u006e\u0067\u0068\u0061\u0069",
+                "city": "Wrong city",
+                "cities": ["Wrong city"],
+            }
+        )
+
+    plan = make_draft_node(untrusted_generator)(state)["draft_plan"]
+
+    assert plan.origin == "Shanghai"
+    assert plan.city == "Tokyo"
+    assert plan.cities == ["Tokyo", "Kyoto"]
+    assert plan.start_date == state["request"].start_date
+    assert plan.end_date == state["request"].end_date
+
+
 def test_validate_stub_node_returns_typed_report() -> None:
     state = _enriched_state()
 

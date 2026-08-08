@@ -47,6 +47,7 @@ def build_placeholder_plan(state: TripState) -> TripPlanV2:
 def make_draft_node(generator: DraftGenerator) -> Callable[[TripState], dict[str, Any]]:
     def draft(state: TripState) -> dict[str, Any]:
         plan = TripPlanV2.model_validate(generator(state))
+        request = state["request"]
         evidence = list(state.get("sources", []))
         sourced_count = sum(item.url is not None for item in evidence)
         if sourced_count == 0:
@@ -58,6 +59,11 @@ def make_draft_node(generator: DraftGenerator) -> Callable[[TripState], dict[str
         payload = plan.model_dump(mode="python")
         payload.update(
             {
+                "origin": request.origin,
+                "city": request.destinations[0].city,
+                "cities": [destination.city for destination in request.destinations],
+                "start_date": request.start_date,
+                "end_date": request.end_date,
                 "transport_options": list(state.get("transport_options", [])),
                 "route_matrix": list(state.get("route_estimates", [])),
                 "source_evidence": evidence,
