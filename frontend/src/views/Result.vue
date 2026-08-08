@@ -1564,12 +1564,12 @@ const cancelReviewEditor = () => {
 const waitForReviewResult = async () => {
   const task = await waitForTripTask(taskId.value)
   await applyTaskRecord(task)
-  if (task.status === 'awaiting_approval') {
+  if (task.review?.status === 'rejected') {
+    message.warning(t('result.review.rejected'))
+  } else if (task.status === 'awaiting_approval') {
     message.success(t('result.review.newDraftReady'))
   } else if (task.status === 'completed') {
     message.success(t('result.review.approvedSaved'))
-  } else if (task.status === 'rejected') {
-    message.warning(t('result.review.rejected'))
   } else if (task.error) {
     throw new Error(task.error.message)
   }

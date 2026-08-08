@@ -425,13 +425,22 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                     review.resolved_at = datetime.now(timezone.utc)
                     current.review_payload = review_public_payload(review)
                 active = get_active_trip_version(session, trip_id)
+                keep_active_version = (
+                    review is not None
+                    and review.workflow_type == "replan"
+                    and active is not None
+                )
                 rejected = update_task_state(
                     session,
                     task_id,
-                    status="rejected",
-                    stage="rejected",
+                    status=("completed" if keep_active_version else "rejected"),
+                    stage=("completed" if keep_active_version else "rejected"),
                     progress=100,
-                    message="Trip plan was rejected by the reviewer.",
+                    message=(
+                        "Replan proposal rejected; the active trip version was preserved."
+                        if keep_active_version
+                        else "Trip plan was rejected by the reviewer."
+                    ),
                     result_payload=(active.payload if active is not None else result_payload),
                     finished=True,
                 )

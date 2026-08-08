@@ -241,6 +241,92 @@ def test_no_change_replan_cannot_be_approved(client, db_session_factory) -> None
     assert "no changes" in response.json()["error"]["message"].lower()
 
 
+def test_rejected_replan_preserves_active_version(
+    db_session_factory: sessionmaker[Session],
+    monkeypatch,
+) -> None:
+    task_id = _create_task(db_session_factory, "reject-replan-preserves-active")
+    plan = _base_plan()
+    with db_session_factory() as session:
+        task = get_task(session, task_id)
+        save_trip_version(
+            session,
+            trip_id=task.trip_id,
+            version=1,
+            payload={"success": True, "data": {"city": plan.city}},
+            planner_engine="journey_graph",
+            version_role="primary",
+            schema_version="2.0",
+            native_payload=plan.model_dump(mode="json"),
+            activate=True,
+        )
+        task.status = "completed"
+        task.result_payload = {"success": True, "data": {"city": plan.city}}
+        session.commit()
+        record_pending_review(
+            session,
+            task_id=task_id,
+            workflow_type="replan",
+            thread_id=f"{task_id}:replan:reject",
+            preview_payload=task.result_payload,
+            native_payload=plan.model_dump(mode="json"),
+            validation_report={"issues": []},
+            diff_payload={
+                "summary": "One change.",
+                "changed_day_indices": [0],
+                "unchanged_day_indices": [],
+                "entries": [
+                    {
+                        "path": "/days/0/transportation",
+                        "operation": "replace",
+                        "before": "train",
+                        "after": "walking",
+                    }
+                ],
+            },
+            base_version=1,
+            proposed_version=2,
+        )
+        submit_review_decision(
+            session,
+            task_id=task_id,
+            decision=TripReviewDecisionV2(action="reject", reason="Keep V1."),
+        )
+
+    rejected = trip_tasks.PlannerExecution(
+        engine="journey_graph",
+        client_payload={"success": True, "data": {"city": plan.city}},
+        schema_version="2.0",
+        native_payload=plan.model_dump(mode="json"),
+        workflow_status="rejected",
+        review_workflow_type="replan",
+    )
+
+    async def fake_rejected(*_args, **_kwargs):
+        return rejected
+
+    class FakeLock:
+        def extend(self, *_args, **_kwargs):
+            return True
+
+    class FakeTask:
+        def retry(self, **_kwargs):
+            raise AssertionError(f"Unexpected retry: {_kwargs}")
+
+    monkeypatch.setattr(trip_tasks, "SessionLocal", db_session_factory)
+    monkeypatch.setattr(trip_tasks, "_run_replan_planner", fake_rejected)
+    monkeypatch.setattr(trip_tasks, "publish_task_event", lambda *_args, **_kwargs: None)
+
+    result = trip_tasks._execute_task(FakeTask(), task_id, FakeLock(), 60)
+
+    with db_session_factory() as session:
+        task = get_task(session, task_id)
+        versions = list_trip_versions(session, task.trip_id)
+    assert result["status"] == "completed"
+    assert task.review_payload["status"] == "rejected"
+    assert [(version.version, version.version_role) for version in versions] == [(1, "primary")]
+
+
 def test_review_and_version_endpoints_compare_and_rollback(
     client,
     db_session_factory: sessionmaker[Session],
