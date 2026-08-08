@@ -38,7 +38,7 @@
 
           <div class="top-switch-actions">
             <a-space size="middle" wrap>
-              <a-button v-if="!editMode" @click="toggleEditMode" type="default">
+              <a-button v-if="!editMode && !taskId" @click="toggleEditMode" type="default">
                 {{ t('result.editTrip') }}
               </a-button>
               <a-button
@@ -48,7 +48,7 @@
               >
                 {{ t('result.review.newReplan') }}
               </a-button>
-              <a-button v-else @click="saveChanges" type="primary">
+              <a-button v-if="editMode" @click="saveChanges" type="primary">
                 {{ t('result.saveChanges') }}
               </a-button>
               <a-button v-if="editMode" @click="cancelEdit" type="default">
