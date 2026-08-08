@@ -33,6 +33,7 @@ def build_placeholder_plan(state: TripState) -> TripPlanV2:
         for day_index, city in enumerate(city_by_day)
     ]
     return TripPlanV2(
+        origin=request.origin,
         city=city_by_day[0],
         cities=[destination.city for destination in request.destinations],
         start_date=request.start_date,

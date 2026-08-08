@@ -239,6 +239,7 @@ def test_legacy_request_adapts_to_trip_request_v2() -> None:
         {
             "contract": "legacy",
             "request": {
+                "origin": "Shanghai",
                 "city": "Tokyo",
                 "cities": [{"city": "Tokyo", "days": 1}],
                 "start_date": "2026-10-10",
@@ -254,5 +255,29 @@ def test_legacy_request_adapts_to_trip_request_v2() -> None:
     )
 
     assert isinstance(request, TripRequestV2)
+    assert request.origin == "Shanghai"
     assert request.destinations[0].city == "Tokyo"
     assert request.transport_preferences == ["public transit"]
+
+
+def test_v2_request_preserves_origin_when_adapted_to_legacy() -> None:
+    request = trip_tasks._to_legacy_request(TRIP_REQUEST_V2_EXAMPLE)
+
+    assert request.origin == "Shanghai"
+    assert request.city == "Tokyo"
+
+
+def test_legacy_request_without_origin_keeps_destination_fallback() -> None:
+    payload = {
+        "contract": "legacy",
+        "request": {
+            "city": "Tokyo",
+            "start_date": "2026-10-10",
+            "end_date": "2026-10-10",
+            "travel_days": 1,
+            "transportation": "public transit",
+            "accommodation": "midscale hotel",
+        },
+    }
+
+    assert trip_tasks._to_v2_request(payload).origin == "Tokyo"

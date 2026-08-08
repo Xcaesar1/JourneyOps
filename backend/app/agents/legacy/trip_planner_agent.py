@@ -88,6 +88,7 @@ PLANNER_AGENT_PROMPT = """你是行程规划专家。你的任务是根据景点
 请严格按照以下JSON格式返回旅行计划:
 ```json
 {
+  "origin": "出发地",
   "city": "首个城市名称(兼容字段)",
   "cities": ["城市1", "城市2"],
   "start_date": "YYYY-MM-DD",
@@ -540,6 +541,7 @@ class MultiAgentTripPlanner:
 
             # 解析最终计划
             trip_plan = self._parse_response(planner_response, request)
+            trip_plan.origin = request.origin or request.city
 
             # 补全 cities 字段（LLM 可能遗漏）
             if not trip_plan.cities:
@@ -653,6 +655,7 @@ class MultiAgentTripPlanner:
         query = f"""请根据以下信息生成{title}:
 
 **基本信息:**
+- 出发地: {request.origin or request.city}
 - 途经城市及天数分配:
 {cities_desc}
 - 总天数: {request.travel_days}天

@@ -231,6 +231,7 @@ class TripPlanV2(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     schema_version: Literal["2.0"] = "2.0"
+    origin: str = Field(..., min_length=1, max_length=120)
     city: str = Field(..., min_length=1, max_length=120)
     cities: list[str] = Field(..., min_length=1)
     start_date: date

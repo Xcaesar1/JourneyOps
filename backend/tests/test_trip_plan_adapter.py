@@ -25,6 +25,7 @@ def test_trip_plan_v2_adapter_matches_current_frontend_contract() -> None:
 
     assert isinstance(adapted, TripPlan)
     assert set(payload) == {
+        "origin",
         "city",
         "cities",
         "start_date",
@@ -37,6 +38,7 @@ def test_trip_plan_v2_adapter_matches_current_frontend_contract() -> None:
         "research_updated_at",
         "research_status",
     }
+    assert payload["origin"] == "Shanghai"
     assert "schema_version" not in payload
     assert payload["days"][0]["date"] == "2026-10-10"
     assert payload["days"][-1]["day_index"] == 4

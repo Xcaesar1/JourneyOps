@@ -585,7 +585,7 @@ def _to_v2_request(payload: dict[str, Any]) -> TripRequestV2:
         for destination in legacy.cities
     ]
     return TripRequestV2(
-        origin=legacy.city,
+        origin=legacy.origin or legacy.city,
         destinations=destinations,
         start_date=legacy.start_date,
         end_date=legacy.end_date,
@@ -608,6 +608,7 @@ def _to_legacy_request(payload: dict[str, Any]) -> TripRequest:
     if context:
         free_text = "\n".join(filter(None, [free_text, "Constraints: " + "; ".join(context)]))
     return TripRequest(
+        origin=payload["origin"],
         city=destinations[0]["city"],
         cities=[CityStay(city=item["city"], days=item["days"]) for item in destinations],
         start_date=payload["start_date"],

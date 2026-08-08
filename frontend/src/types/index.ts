@@ -96,6 +96,7 @@ export interface SourceEvidence {
 }
 
 export interface TripPlan {
+  origin?: string
   city: string
   cities?: string[]
   start_date: string
@@ -110,6 +111,7 @@ export interface TripPlan {
 }
 
 export interface TripFormData {
+  origin: string
   city: string
   cities?: CityStay[]
   start_date: string

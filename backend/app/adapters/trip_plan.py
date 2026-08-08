@@ -106,6 +106,7 @@ def trip_plan_v2_to_legacy(plan: TripPlanV2) -> TripPlan:
             total=plan.budget.total,
         )
     return TripPlan(
+        origin=plan.origin,
         city=plan.city,
         cities=plan.cities,
         start_date=plan.start_date.isoformat(),

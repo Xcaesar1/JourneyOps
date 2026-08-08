@@ -17,6 +17,11 @@ class CityStay(BaseModel):
 
 class TripRequest(BaseModel):
     """旅行规划请求"""
+    origin: str = Field(
+        default="",
+        description="出发地",
+        json_schema_extra={"example": "上海"},
+    )
     city: str = Field(default="", description="目的地城市(单城市兼容)", example="北京")
     cities: List[CityStay] = Field(default_factory=list, description="多城市行程配置")
     start_date: str = Field(..., description="开始日期 YYYY-MM-DD", example="2025-06-01")
@@ -40,6 +45,7 @@ class TripRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
+                "origin": "上海",
                 "city": "北京",
                 "cities": [{"city": "北京", "days": 2}, {"city": "西安", "days": 3}],
                 "start_date": "2025-06-01",
@@ -170,6 +176,7 @@ class Budget(BaseModel):
 
 class TripPlan(BaseModel):
     """旅行计划"""
+    origin: str = Field(default="", description="出发地")
     city: str = Field(..., description="主城市(兼容)/首个城市")
     cities: List[str] = Field(default_factory=list, description="所有途经城市列表")
     start_date: str = Field(..., description="开始日期")

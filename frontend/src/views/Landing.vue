@@ -37,6 +37,18 @@
               <h3>{{ t('home.step1') }}</h3>
             </div>
 
+            <a-form-item name="origin" :rules="formRules.origin">
+              <template #label>
+                <span class="field-label">{{ t('home.originLabel') }}</span>
+              </template>
+              <a-input
+                v-model:value="formData.origin"
+                :placeholder="t('home.originPlaceholder')"
+                size="large"
+                class="field-input"
+              />
+            </a-form-item>
+
             <!-- 多城市动态列表 -->
             <div class="city-list">
               <div v-for="(cs, idx) in formData.cities" :key="idx" class="city-row">
@@ -301,6 +313,7 @@ import type { TripFormData, TripTaskEvent, TripHistoryItem, CityStay } from '@/t
 import type { Dayjs } from 'dayjs'
 
 type LandingFormData = {
+  origin: string
   cities: Array<{ city: string; days: number }>
   start_date: Dayjs | null
   transportation: string
@@ -345,10 +358,12 @@ const interestOptions = [
 ]
 
 const formRules = computed(() => ({
+  origin: [{ required: true, whitespace: true, message: t('home.originRequired') }],
   startDate: [{ required: true, message: t('home.startDateRequired') }],
 }))
 
 const formData = reactive<LandingFormData>({
+  origin: '',
   cities: [{ city: '', days: 2 }],
   start_date: null,
   transportation: '公共交通',
@@ -463,6 +478,10 @@ onUnmounted(() => {
 })
 
 const handleSubmit = async () => {
+  if (!formData.origin.trim()) {
+    message.error(t('home.originRequired'))
+    return
+  }
   // 校验：至少一个城市名非空
   const validCities = formData.cities.filter(cs => cs.city.trim())
   if (validCities.length === 0) {
@@ -496,6 +515,7 @@ const handleSubmit = async () => {
     const endDate = computedEndDate.value!
 
     const requestData: TripFormData = {
+      origin: formData.origin.trim(),
       city: citiesPayload[0].city,
       cities: citiesPayload,
       start_date: formData.start_date.format('YYYY-MM-DD'),

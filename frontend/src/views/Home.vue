@@ -40,6 +40,18 @@
             </div>
 
             <div class="fields-grid fields-4">
+              <a-form-item name="origin" :rules="formRules.origin">
+                <template #label>
+                  <span class="field-label">{{ t('home.originLabel') }}</span>
+                </template>
+                <a-input
+                  v-model:value="formData.origin"
+                  :placeholder="t('home.originPlaceholder')"
+                  size="large"
+                  class="dark-input"
+                />
+              </a-form-item>
+
               <a-form-item name="city" :rules="formRules.city">
                 <template #label>
                   <span class="field-label">{{ t('home.cityLabel') }}</span>
@@ -231,6 +243,7 @@ const interestOptions = [
 ]
 
 const formRules = computed(() => ({
+  origin: [{ required: true, whitespace: true, message: t('home.originRequired') }],
   city: [{ required: true, message: t('home.cityRequired') }],
   startDate: [{ required: true, message: t('home.startDateRequired') }],
   endDate: [{ required: true, message: t('home.endDateRequired') }],
@@ -242,6 +255,7 @@ type HomeFormData = Omit<TripFormData, 'start_date' | 'end_date'> & {
 }
 
 const formData = reactive<HomeFormData>({
+  origin: '',
   city: '',
   start_date: null,
   end_date: null,
@@ -306,6 +320,7 @@ const handleSubmit = async () => {
     sessionStorage.removeItem('planId')
 
     const requestData: TripFormData = {
+      origin: formData.origin.trim(),
       city: formData.city,
       start_date: formData.start_date.format('YYYY-MM-DD'),
       end_date: formData.end_date.format('YYYY-MM-DD'),
