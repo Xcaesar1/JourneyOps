@@ -26,6 +26,7 @@ from ...db.repository import (
     attach_celery_task,
     create_or_get_task,
     create_replan_review_request,
+    create_trip_feedback,
     get_active_trip_version,
     get_task,
     get_task_for_trip,
@@ -49,6 +50,7 @@ from ...domain.error_models import (
     V2_VALIDATION_ERROR_EXAMPLE,
     ErrorEnvelopeV2,
 )
+from ...domain.feedback_models import TripFeedbackRecordV2, TripFeedbackRequestV2
 from ...domain.observability_models import TelemetryEventV2
 from ...domain.review_models import (
     PlanDiffV2,
@@ -241,6 +243,38 @@ def replan_trip(
         TripReviewDecisionV2(action="modify", reason=changes.instruction, changes=changes),
         session,
         http_request,
+    )
+
+
+@router.post(
+    "/{trip_id}/feedback",
+    status_code=status.HTTP_201_CREATED,
+    response_model=TripFeedbackRecordV2,
+    summary="Persist bounded feedback for a trip",
+)
+def submit_trip_feedback(
+    trip_id: str,
+    feedback: TripFeedbackRequestV2,
+    session: DbSession,
+) -> TripFeedbackRecordV2:
+    task = _required_trip_task(session, trip_id)
+    if feedback.version is not None and get_trip_version(session, trip_id, feedback.version) is None:
+        raise HTTPException(status_code=404, detail="Trip version not found.")
+    record = create_trip_feedback(
+        session,
+        trip_id=trip_id,
+        task_id=task.id,
+        feedback=feedback,
+    )
+    return TripFeedbackRecordV2(
+        feedback_id=record.id,
+        trip_id=record.trip_id,
+        task_id=record.task_id,
+        rating=record.rating,
+        category=feedback.category,
+        comment=record.comment,
+        version=record.version,
+        created_at=record.created_at,
     )
 
 

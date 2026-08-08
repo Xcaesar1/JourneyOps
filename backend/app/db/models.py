@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -268,3 +269,29 @@ class TripReview(Base):
 
     trip: Mapped[Trip] = relationship(back_populates="reviews")
     task: Mapped[TripTask] = relationship(back_populates="reviews")
+
+
+class UserFeedback(Base):
+    """Append-only bounded feedback associated with a durable trip and task."""
+
+    __tablename__ = "user_feedback"
+    __table_args__ = (
+        CheckConstraint(
+            "rating IS NULL OR (rating >= 1 AND rating <= 5)",
+            name="rating_range",
+        ),
+        Index("ix_user_feedback_trip_created_at", "trip_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    trip_id: Mapped[str] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    task_id: Mapped[str] = mapped_column(
+        ForeignKey("trip_tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    rating: Mapped[int | None] = mapped_column(Integer)
+    category: Mapped[str] = mapped_column(String(32), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    version: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

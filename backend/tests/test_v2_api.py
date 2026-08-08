@@ -49,6 +49,60 @@ def test_v2_canonical_trip_and_task_resource_paths(client) -> None:
     assert events.json() == []
 
 
+def test_v2_trip_feedback_is_persisted_without_dispatch(
+    client,
+    db_session_factory,
+) -> None:
+    from backend.app.db.models import UserFeedback
+    from sqlalchemy import select
+
+    created = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE).json()
+    response = client.post(
+        f"/api/v2/trips/{created['trip_id']}/feedback",
+        json={
+            "rating": 4,
+            "category": "plan_quality",
+            "comment": "The route order was useful.",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["feedback_id"].startswith("feedback_")
+    assert body["trip_id"] == created["trip_id"]
+    assert body["task_id"] == created["task_id"]
+    assert body["rating"] == 4
+    assert body["category"] == "plan_quality"
+    with db_session_factory() as session:
+        record = session.scalar(select(UserFeedback))
+        assert record is not None
+        assert record.comment == "The route order was useful."
+
+
+def test_v2_trip_feedback_rejects_empty_or_unknown_resources(client) -> None:
+    created = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE).json()
+
+    empty = client.post(
+        f"/api/v2/trips/{created['trip_id']}/feedback",
+        json={},
+    )
+    missing_trip = client.post(
+        "/api/v2/trips/trip_missing/feedback",
+        json={"rating": 5},
+    )
+    missing_version = client.post(
+        f"/api/v2/trips/{created['trip_id']}/feedback",
+        json={"rating": 5, "version": 99},
+    )
+
+    assert empty.status_code == 422
+    assert empty.json()["error"]["code"] == "validation_error"
+    assert missing_trip.status_code == 404
+    assert missing_trip.json()["error"]["code"] == "not_found"
+    assert missing_version.status_code == 404
+    assert missing_version.json()["error"]["code"] == "not_found"
+
+
 def test_v2_duplicate_payload_returns_same_durable_task(client) -> None:
     first = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE)
     second = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE)
@@ -223,6 +277,7 @@ def test_openapi_includes_durable_v2_examples(client) -> None:
         "/api/v2/trips/{trip_id}",
         "/api/v2/trips/{trip_id}/approve",
         "/api/v2/trips/{trip_id}/replan",
+        "/api/v2/trips/{trip_id}/feedback",
         "/api/v2/tasks/{task_id}",
         "/api/v2/tasks/{task_id}/events",
     ):

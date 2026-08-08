@@ -173,6 +173,24 @@ PostgreSQL/Redis volumes。只回滚应用时保留数据卷；确认备份可�
 
 ## Migration Rollback
 
+最终 DoD 审计 revision `20260809_06` 增加追加式 `user_feedback` 表。应用回滚时优先保留该表；
+若已确认反馈数据不再需要，并已有验证通过的 PostgreSQL custom dump，可在停掉 API 和 Worker 后执行：
+
+```bash
+docker compose \
+  --env-file .env.staging \
+  -f docker-compose.yaml \
+  -f docker-compose.staging.yaml \
+  stop trip-planner worker
+docker compose \
+  --env-file .env.staging \
+  -f docker-compose.yaml \
+  -f docker-compose.staging.yaml \
+  run --rm migrate alembic -c backend/alembic.ini downgrade 20260808_05
+```
+
+该 downgrade 会永久删除全部用户反馈，只能在 staging 维护窗口经人工确认后执行，不得用于生产。
+
 阶段 7 revision `20260808_05` 增加 trace、版本运行清单和脱敏遥测。应用回滚时优先保留这些
 加法结构；若明确需要回退到阶段 6 schema：
 

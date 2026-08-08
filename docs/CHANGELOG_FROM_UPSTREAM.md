@@ -37,4 +37,10 @@
 - 增加无 Key 的确定性 Demo 模式、独立 Compose、容器资源限制、日志轮转和非 root 运行。
 - 增加 Caddy/Nginx HTTPS 示例、中英文项目入口、Before/After 架构、ADR 和演示脚本。
 
+## Final DoD Audit - 2026-08-09
+
+- 补齐规划中标准 `/api/v2/tasks/...`、Trip 资源、确认、重规划和反馈接口。
+- 增加持久化、受限且不触发模型调用的用户反馈记录。
+- 增加核心类型检查门禁，并保持 legacy Planner 文件不受检查改写。
+
 GPL-2.0 License 和上游归属保持不变。

@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..domain.feedback_models import TripFeedbackRequestV2
 from ..domain.research_models import SourceEvidence
 from ..domain.review_models import TripReviewDecisionV2
 from .models import (
@@ -22,6 +23,7 @@ from .models import (
     TripTask,
     TripTelemetryEvent,
     TripVersion,
+    UserFeedback,
 )
 
 FINAL_TASK_STATUSES = frozenset({"completed", "rejected", "failed", "cancelled"})
@@ -98,6 +100,29 @@ def get_task_for_trip(
     if for_update:
         statement = statement.with_for_update()
     return session.scalar(statement)
+
+
+def create_trip_feedback(
+    session: Session,
+    *,
+    trip_id: str,
+    task_id: str,
+    feedback: TripFeedbackRequestV2,
+) -> UserFeedback:
+    """Append bounded feedback without changing task or version state."""
+    record = UserFeedback(
+        id=f"feedback_{uuid4().hex[:20]}",
+        trip_id=trip_id,
+        task_id=task_id,
+        rating=feedback.rating,
+        category=feedback.category,
+        comment=feedback.comment,
+        version=feedback.version,
+    )
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return record
 
 
 def attach_celery_task(
