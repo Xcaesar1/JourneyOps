@@ -1,6 +1,6 @@
 # Deployment And Rollback
 
-本文件描述阶段 4 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
+本文件描述阶段 5 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
 Oracle staging，使用独立端口、独立 named volumes 和可回滚的镜像标签。
 
 ## Staging Deploy
@@ -16,10 +16,10 @@ chmod 0600 .env.staging
 只在未跟踪的 `.env.staging` 中填写 Secret。`POSTGRES_PASSWORD` 使用随机、URL-safe 字符；
 不得打印该文件。
 
-阶段 4 部署至少显式设置以下非 Secret flags：
+阶段 5 部署至少显式设置以下非 Secret flags：
 
 ```dotenv
-IMAGE_TAG=phase4-<short-commit>
+IMAGE_TAG=phase5-<short-commit>
 PLANNER_ENGINE=journey_graph
 PLANNER_COMPARE_ENGINES=false
 LEGACY_JSON_REPAIR=true
@@ -36,6 +36,10 @@ SOURCE_CACHE_TTL_SECONDS=21600
 官方域名 allowlist。XHS 默认关闭；仅在社区来源已获授权且 Cookie 已安全写入主机环境时启用。
 comparison 默认关闭，避免双倍外部调用成本。
 
+路线服务 Key、前端地图 Key 和前端安全配置同样只能保存在 `.env.staging` 或受限运行时设置中。
+日志不得记录带查询参数的上游请求 URL。高德路线接口返回的是驾车距离/时长证据；系统生成的
+火车或飞机方案是确定性规划估算，不得标记为实时班次、余票、可售状态或实时票价。
+
 ```bash
 docker compose \
   --env-file .env.staging \
@@ -46,7 +50,12 @@ docker compose \
   --env-file .env.staging \
   -f docker-compose.yaml \
   -f docker-compose.staging.yaml \
-  up -d --build
+  build trip-planner
+docker compose \
+  --env-file .env.staging \
+  -f docker-compose.yaml \
+  -f docker-compose.staging.yaml \
+  up -d --no-build
 docker compose \
   --env-file .env.staging \
   -f docker-compose.yaml \
@@ -143,9 +152,9 @@ LangGraph checkpoint tables 不由 Alembic revision 管理，默认保留。
 
 ## Production Promotion Gate
 
-阶段 4 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
+阶段 5 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
 可重复执行且已在 staging 验证的数据导入方案，并核对任务数、终态数和历史结果。该迁移未完成前，
-不得将阶段 4 栈提升为 production，也不得删除旧 JSON volume。
+不得将阶段 5 栈提升为 production，也不得删除旧 JSON volume。
 
 ## Executed Backup Evidence
 
@@ -171,3 +180,14 @@ LangGraph checkpoint tables 不由 Alembic revision 管理，默认保留。
 - Real no-Key JourneyGraph task completed with 4 persisted `unknown` evidence records and no task error
 - Real configured XHS call returned `unavailable` through the optional-provider boundary without failing a task
 - Full matrix, browser verification and residual risks: `docs/PHASE_4_ACCEPTANCE.md`
+
+## Phase 5 Executed Evidence
+
+- 2026-08-08 pre-deploy backup: `/var/backups/tripstar/20260808T041757Z-phase5-predeploy`
+- Deployed source: `147d93b`; image: `journeyops-app:phase5-147d93b`
+- Alembic remains `20260808_03`; migration container exit: `0`; no phase 5 schema migration
+- Real JourneyGraph task `task_6c97534bd3d148bd97ca` completed with explicit origin, recommended intercity
+  option, closed timelines, recalculated budget, zero validation issues and zero revisions
+- AMap route smoke returned `verified` with a 1,205,561 meter Beijing-to-Shanghai distance
+- Five non-empty sensitive values were absent from route output, API/Worker logs and the task response
+- Full matrix, browser verification and residual risks: `docs/PHASE_5_ACCEPTANCE.md`

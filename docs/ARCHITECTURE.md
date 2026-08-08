@@ -1,6 +1,6 @@
 # JourneyOps Architecture
 
-## Phase 4 Runtime
+## Phase 5 Runtime
 
 ```mermaid
 flowchart LR
@@ -19,8 +19,13 @@ flowchart LR
     SourceCache[("Redis source cache with TTL")]
     Evidence[("SourceEvidence and version links")]
     Community["Optional XHS community context"]
+    Routing["AMap / Noop / Fallback route estimates"]
+    Enrich["Deterministic timeline and budget"]
+    Validate["Six deterministic validators"]
+    Revise["Bounded revise loop, max 2"]
     Checkpoints[("PostgreSQL checkpoints")]
     Adapter["TripPlanV2 to legacy Adapter"]
+    UI["Transport, timeline and validation UI"]
     Providers["LLM, maps and weather"]
 
     Client -->|"legacy or v2 POST"| API1
@@ -40,6 +45,11 @@ flowchart LR
     WebResearch <--> SourceCache
     WebResearch --> Graph
     Graph --> Providers
+    Graph --> Routing
+    Routing --> Enrich
+    Enrich --> Validate
+    Validate --> Revise
+    Revise --> Enrich
     Graph <--> Checkpoints
     Graph --> Adapter
     Graph --> Evidence
@@ -49,6 +59,7 @@ flowchart LR
     Events -->|"WebSocket trigger"| API1
     API1 -->|"reconciled event"| Client
     API2 --> DB
+    DB --> UI
 ```
 
 ## Persistence Boundaries
@@ -57,6 +68,9 @@ flowchart LR
 - `trip_tasks` stores execution status, progress, attempts, cancellation and terminal errors.
 - `trip_versions` stores immutable outputs with unique `(trip_id, version)`. Phase 3 adds planner engine,
   primary/comparison role, schema version and optional native `TripPlanV2` payload metadata.
+- The phase 5 native payload owns the normalized origin, route estimates, intercity transport options,
+  contiguous schedule items, recalculated budget, validation report and revision count. These values remain
+  part of the immutable version rather than mutable process state.
 - `source_evidence` deduplicates source metadata and explicit `unknown` markers. `trip_source_links` binds
   evidence to an immutable trip version, so a later refresh cannot silently rewrite historical output.
 - LangGraph checkpoint tables store resumable typed graph state by durable task id. Their serializer rejects
@@ -99,7 +113,8 @@ sequenceDiagram
 
 ## JourneyGraph
 
-The phase 4 graph adds bounded research before collection while retaining deterministic checkpoints:
+The phase 5 graph adds route planning, deterministic enrichment, validation and bounded revision while
+retaining phase 4 research and durable checkpoints:
 
 ```mermaid
 flowchart LR
@@ -107,17 +122,27 @@ flowchart LR
     Normalize --> Prepare[prepare_research_queries]
     Prepare --> Research[research_web]
     Research --> Collect[collect]
-    Collect --> Draft[draft]
-    Draft --> Validate[validate_stub]
-    Validate --> Persist[persist]
+    Collect --> Transport[plan_intercity_transport]
+    Transport --> Draft[draft]
+    Draft --> Enrich[enrich_plan]
+    Enrich --> Validate[deterministic_validate]
+    Validate -->|"critical and revisions < 2"| Revise[revise_plan]
+    Revise --> Enrich
+    Validate -->|"no critical or limit reached"| Persist[persist]
     Persist --> End([END])
 ```
 
-`prepare_research_queries` creates five deterministic queries per destination: opening hours, closures,
-reservations, events and travel tips. The first four are critical. `research_web` records sanitized Provider
-issues and metrics without stopping the graph; unanswered critical queries become explicit `unknown`
-evidence. `draft` validates provider-native JSON as `TripPlanV2`, then replaces any model-provided evidence
-with graph-owned evidence. The Adapter carries the same evidence into the legacy frontend response.
+`prepare_research_queries` and `research_web` retain the phase 4 evidence policy. After collection,
+`plan_intercity_transport` estimates the origin-to-first-city and between-city legs through the configured
+route Provider and creates at most two deterministic planning options per leg with exactly one recommendation.
+AMap supplies driving distance and duration as route evidence; train and flight durations/costs are planning
+estimates, not schedules, availability or live fares.
+
+`draft` validates provider-native JSON as `TripPlanV2`, then restores request-owned identity fields and
+graph-owned evidence. `enrich_plan` creates unique schedule items that close each requested daily window and
+recalculates all budget components. `deterministic_validate` runs structure/date, time, route, budget, opening
+hours and intensity checks. A critical issue loops through `revise_plan` at most twice; unresolved issues are
+persisted and shown instead of being hidden. The Adapter carries these fields into the legacy frontend response.
 
 Official trust is assigned only through configured domain allowlists or recognized government suffixes.
 Web evidence is cached in Redis using `SOURCE_CACHE_TTL_SECONDS`; XHS is optional community context and is
@@ -140,6 +165,10 @@ disabled unless both `XHS_ENABLED=true` and a Cookie are configured.
 - Web research maps authentication, rate-limit, timeout, empty and malformed responses to fixed safe codes.
   One Provider failure falls through to the next Provider; when none succeeds, planning continues with
   `unknown` evidence.
+- Route lookup maps Provider failure to a safe unavailable estimate and deterministic fallback options. Raw
+  upstream payloads and credential-bearing request URLs do not enter graph state, API responses or INFO logs.
+- Validation is program-owned. The LLM cannot override request identity, computed route metadata, timeline,
+  budget totals, validation results or the two-revision limit.
 - XHS failures return a language-specific fallback context. Raw Cookie values and upstream exception text do
   not enter graph state, API responses or logs.
 

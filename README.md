@@ -10,11 +10,11 @@
   <img src="https://img.shields.io/badge/FastAPI-0.100+-teal.svg">
 </p>
 
-> JourneyOps 二次开发状态：阶段 4 已增加来源化旅行研究、Brave Search/Noop/Fallback
-> Provider、官方来源排序、Redis TTL 缓存、可选小红书社区来源、`SourceEvidence` 持久化，
-> 以及前端“来源与更新时间”卡片。未配置搜索 Key 时仍会生成计划，并将缺少来源的关键事实
-> 标记为 `unknown`。当前架构、验收、部署和回滚说明见 `docs/ARCHITECTURE.md`、
-> `docs/PHASE_4_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。
+> JourneyOps 二次开发状态：阶段 5 已实现显式出发地、城际交通候选、路线/距离 Provider、
+> 确定性每日时间轴和预算，以及日期、时间、路线、预算、营业时间、强度六类校验器。
+> critical 问题会进入最多两轮的修订闭环，最终问题按 critical/warning/info 展示；系统只给出
+> 规划估算，不虚构车次、航班号、实时余票或实时票价。当前架构、验收、部署和回滚说明见
+> `docs/ARCHITECTURE.md`、`docs/PHASE_5_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。
 
 <div align="center">
 
