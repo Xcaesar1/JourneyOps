@@ -87,6 +87,19 @@ def get_trip(session: Session, trip_id: str) -> Trip | None:
     return session.get(Trip, trip_id)
 
 
+def get_task_for_trip(
+    session: Session,
+    trip_id: str,
+    *,
+    for_update: bool = False,
+) -> TripTask | None:
+    """Load the single durable task associated with a canonical trip."""
+    statement = select(TripTask).where(TripTask.trip_id == trip_id)
+    if for_update:
+        statement = statement.with_for_update()
+    return session.scalar(statement)
+
+
 def attach_celery_task(
     session: Session,
     task_id: str,
@@ -835,7 +848,7 @@ def task_needs_recovery(
 
 
 def _task_for_trip(session: Session, trip_id: str) -> TripTask:
-    task = session.scalar(select(TripTask).where(TripTask.trip_id == trip_id))
+    task = get_task_for_trip(session, trip_id)
     if task is None:
         raise RuntimeError(f"Trip {trip_id} has no durable task.")
     return task

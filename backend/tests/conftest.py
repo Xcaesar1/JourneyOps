@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from backend.app.api.errors import register_api_exception_handlers
 from backend.app.api.routes import trip as legacy_trip_routes
+from backend.app.api.v2 import tasks as v2_task_routes
 from backend.app.api.v2 import trips as v2_trip_routes
 from backend.app.db.base import Base
 from backend.app.db.session import get_db_session
@@ -60,6 +61,7 @@ def api_app(
     install_trace_middleware(app)
     app.include_router(legacy_trip_routes.router, prefix="/api")
     app.include_router(v2_trip_routes.router, prefix="/api/v2")
+    app.include_router(v2_task_routes.router, prefix="/api/v2")
 
     def override_db_session():
         with db_session_factory() as session:

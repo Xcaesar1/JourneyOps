@@ -33,6 +33,22 @@ def test_v2_create_trip_persists_before_dispatch_without_importing_planner(clien
     assert persisted.json() == body
 
 
+def test_v2_canonical_trip_and_task_resource_paths(client) -> None:
+    created = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE).json()
+
+    trip = client.get(f"/api/v2/trips/{created['trip_id']}")
+    task = client.get(f"/api/v2/tasks/{created['task_id']}")
+    events = client.get(f"/api/v2/tasks/{created['task_id']}/events")
+
+    assert trip.status_code == 200
+    assert trip.json()["request"]["origin"] == TRIP_REQUEST_V2_EXAMPLE["origin"]
+    assert trip.json()["task"] == created
+    assert task.status_code == 200
+    assert task.json() == created
+    assert events.status_code == 200
+    assert events.json() == []
+
+
 def test_v2_duplicate_payload_returns_same_durable_task(client) -> None:
     first = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE)
     second = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE)
@@ -203,3 +219,11 @@ def test_openapi_includes_durable_v2_examples(client) -> None:
     assert "durable_submission" in request_examples
     assert accepted_example["status"] == "queued"
     assert conflict_example["error"]["code"] == "conflict"
+    for path in (
+        "/api/v2/trips/{trip_id}",
+        "/api/v2/trips/{trip_id}/approve",
+        "/api/v2/trips/{trip_id}/replan",
+        "/api/v2/tasks/{task_id}",
+        "/api/v2/tasks/{task_id}/events",
+    ):
+        assert path in schema["paths"]

@@ -414,3 +414,56 @@ def test_review_and_version_endpoints_compare_and_rollback(
     reviews = client.get(f"/api/v2/trips/{trip_id}/reviews")
     assert reviews.status_code == 200
     assert any(item["workflow_type"] == "rollback" for item in reviews.json())
+
+
+def test_canonical_approve_and_replan_routes(
+    client,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    created = client.post("/api/v2/trips", json=TRIP_REQUEST_V2_EXAMPLE).json()
+    plan = _base_plan()
+    with db_session_factory() as session:
+        task = get_task(session, created["task_id"])
+        assert task is not None
+        record_pending_review(
+            session,
+            task_id=task.id,
+            workflow_type="initial",
+            thread_id=task.id,
+            preview_payload={"success": True, "data": {"city": plan.city}},
+            native_payload=plan.model_dump(mode="json"),
+            validation_report={"issues": []},
+            diff_payload={},
+            proposed_version=1,
+        )
+
+    approval = client.post(f"/api/v2/trips/{created['trip_id']}/approve")
+    assert approval.status_code == 202
+    assert approval.json()["review"]["status"] == "approved"
+
+    with db_session_factory() as session:
+        task = get_task(session, created["task_id"])
+        assert task is not None
+        save_trip_version(
+            session,
+            trip_id=task.trip_id,
+            version=1,
+            payload={"success": True, "data": {"city": plan.city}},
+            planner_engine="journey_graph",
+            version_role="primary",
+            schema_version="2.0",
+            native_payload=plan.model_dump(mode="json"),
+            validation_report={"issues": []},
+            activate=True,
+        )
+        task.status = "completed"
+        task.result_payload = {"success": True, "data": {"city": plan.city}}
+        session.commit()
+
+    replan = client.post(
+        f"/api/v2/trips/{created['trip_id']}/replan",
+        json={"instruction": "Remove Museum A from day one.", "day_indices": [0]},
+    )
+    assert replan.status_code == 202
+    assert replan.json()["review"]["workflow_type"] == "replan"
+    assert replan.json()["review"]["status"] == "requested"

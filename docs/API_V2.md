@@ -14,11 +14,22 @@ JourneyGraph 原生输出按 `TripPlanV2` 校验并保存在 `trip_versions.nati
 | Method | Path | Result |
 | --- | --- | --- |
 | `POST` | `/api/v2/trips` | 创建或返回幂等任务，返回 `202` |
+| `GET` | `/api/v2/trips/{trip_id}` | 查询规范化请求、当前持久任务和活动版本指针 |
+| `POST` | `/api/v2/trips/{trip_id}/approve` | 确认当前人工审核提案 |
+| `POST` | `/api/v2/trips/{trip_id}/replan` | 对已完成行程发起局部动态重规划 |
+| `GET` | `/api/v2/tasks/{task_id}` | 标准 Task 资源路径，从 PostgreSQL 查询任务 |
+| `GET` | `/api/v2/tasks/{task_id}/events` | 查询持久、脱敏的任务事件和遥测 |
+| `POST` | `/api/v2/tasks/{task_id}/cancel` | 标准 Task 资源路径取消任务 |
+| `POST` | `/api/v2/tasks/{task_id}/retry` | 标准 Task 资源路径重试任务 |
+| `WS` | `/api/v2/tasks/{task_id}/ws` | 标准 Task 资源路径订阅进度 |
 | `GET` | `/api/v2/trips/tasks/{task_id}` | 从 PostgreSQL 查询任务 |
 | `GET` | `/api/v2/trips/tasks/{task_id}/telemetry` | 查询脱敏 trace、节点、工具和费用遥测 |
 | `POST` | `/api/v2/trips/tasks/{task_id}/cancel` | 取消排队任务或请求协作式取消 |
 | `POST` | `/api/v2/trips/tasks/{task_id}/retry` | 重试失败或已取消任务 |
 | `WS` | `/api/v2/trips/tasks/{task_id}/ws` | 订阅 Redis Pub/Sub 进度 |
+
+`/api/v2/trips/tasks/...` 是阶段 2 前端契约并继续保留；`/api/v2/tasks/...` 是规划文档定义的标准
+资源路径，两组路由使用同一 PostgreSQL、Redis 和 Celery 实现，不复制状态。
 
 旧 `/api/trip/plan`、`/api/trip/status/{task_id}`、`/api/trip/history` 和
 `/api/trip/ws/{task_id}` 保留原响应结构，但内部使用同一个数据库、Worker 和 Pub/Sub。

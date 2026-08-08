@@ -28,6 +28,7 @@ from ...db.repository import (
     create_replan_review_request,
     get_active_trip_version,
     get_task,
+    get_task_for_trip,
     get_trip,
     get_trip_version,
     list_task_telemetry,
@@ -51,6 +52,7 @@ from ...domain.error_models import (
 from ...domain.observability_models import TelemetryEventV2
 from ...domain.review_models import (
     PlanDiffV2,
+    ReplanRequestV2,
     TripReviewDecisionV2,
     TripReviewRecordV2,
     TripVersionRecordV2,
@@ -58,6 +60,7 @@ from ...domain.review_models import (
 )
 from ...domain.task_models import TRIP_TASK_RECORD_V2_EXAMPLE, TripTaskRecordV2
 from ...domain.trip_models import TRIP_REQUEST_V2_EXAMPLE, TripPlanV2, TripRequestV2
+from ...domain.trip_resource_models import TripResourceV2
 from ...services.guardrails import enforce_spend_guardrails
 from ...services.observability import sanitize_metadata
 from ...services.replanning import diff_plans
@@ -182,6 +185,63 @@ def read_task_telemetry(task_id: str, session: DbSession) -> list[TelemetryEvent
         )
         for event in list_task_telemetry(session, task_id)
     ]
+
+
+@router.get(
+    "/{trip_id}",
+    response_model=TripResourceV2,
+    summary="Read a canonical trip resource",
+)
+def read_trip(trip_id: str, session: DbSession) -> TripResourceV2:
+    trip = get_trip(session, trip_id)
+    task = get_task_for_trip(session, trip_id)
+    if trip is None or task is None:
+        raise HTTPException(status_code=404, detail="Trip not found.")
+    return TripResourceV2(
+        trip_id=trip.id,
+        request=trip.request_payload,
+        task=_response(task),
+        active_version=trip.active_version,
+        created_at=trip.created_at,
+        updated_at=trip.updated_at,
+    )
+
+
+@router.post(
+    "/{trip_id}/approve",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=TripTaskRecordV2,
+    summary="Approve the current durable proposal",
+)
+def approve_trip(trip_id: str, session: DbSession, http_request: Request) -> TripTaskRecordV2:
+    task = _required_trip_task(session, trip_id)
+    return review_task(
+        task.id,
+        TripReviewDecisionV2(action="approve"),
+        session,
+        http_request,
+    )
+
+
+@router.post(
+    "/{trip_id}/replan",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=TripTaskRecordV2,
+    summary="Start a scoped replan for a trip",
+)
+def replan_trip(
+    trip_id: str,
+    changes: ReplanRequestV2,
+    session: DbSession,
+    http_request: Request,
+) -> TripTaskRecordV2:
+    task = _required_trip_task(session, trip_id)
+    return review_task(
+        task.id,
+        TripReviewDecisionV2(action="modify", reason=changes.instruction, changes=changes),
+        session,
+        http_request,
+    )
 
 
 @router.post(
@@ -428,6 +488,13 @@ def _required_task(session: Session, task_id: str) -> TripTask:
     task = get_task(session, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found.")
+    return task
+
+
+def _required_trip_task(session: Session, trip_id: str) -> TripTask:
+    task = get_task_for_trip(session, trip_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Trip not found.")
     return task
 
 
