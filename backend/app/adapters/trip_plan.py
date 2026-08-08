@@ -79,6 +79,8 @@ def trip_plan_v2_to_legacy(plan: TripPlanV2) -> TripPlan:
                 hotel=hotel,
                 attractions=attractions,
                 meals=meals,
+                timeline=day.timeline,
+                arrangement_rationale=day.arrangement_rationale,
             )
         )
 

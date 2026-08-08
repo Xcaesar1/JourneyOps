@@ -2,6 +2,7 @@
 
 from .collect import collect
 from .draft import DraftGenerator, build_placeholder_plan, make_draft_node
+from .enrich import enrich_plan
 from .normalize import normalize_request
 from .persist import persist
 from .prepare_research import prepare_research_queries
@@ -13,6 +14,7 @@ __all__ = [
     "DraftGenerator",
     "build_placeholder_plan",
     "collect",
+    "enrich_plan",
     "make_draft_node",
     "normalize_request",
     "persist",

@@ -13,6 +13,7 @@ from .nodes import (
     DraftGenerator,
     build_placeholder_plan,
     collect,
+    enrich_plan,
     make_draft_node,
     make_research_web_node,
     make_plan_intercity_transport_node,
@@ -44,6 +45,7 @@ def build_journey_graph(
         make_plan_intercity_transport_node(configured_route_provider),
     )
     builder.add_node("draft", make_draft_node(draft_generator))
+    builder.add_node("enrich_plan", enrich_plan)
     builder.add_node("validate_stub", validate_stub)
     builder.add_node("persist", persist)
     builder.add_edge(START, "normalize_request")
@@ -52,7 +54,8 @@ def build_journey_graph(
     builder.add_edge("research_web", "collect")
     builder.add_edge("collect", "plan_intercity_transport")
     builder.add_edge("plan_intercity_transport", "draft")
-    builder.add_edge("draft", "validate_stub")
+    builder.add_edge("draft", "enrich_plan")
+    builder.add_edge("enrich_plan", "validate_stub")
     builder.add_edge("validate_stub", "persist")
     builder.add_edge("persist", END)
     return builder.compile(

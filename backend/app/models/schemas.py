@@ -5,7 +5,11 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date, datetime
 
 from ..domain.research_models import SourceEvidence
-from ..domain.trip_models import IntercityTransportOptionV2, RouteEstimateV2
+from ..domain.trip_models import (
+    IntercityTransportOptionV2,
+    RouteEstimateV2,
+    ScheduleItemV2,
+)
 
 
 # ============ 请求模型 ============
@@ -136,6 +140,8 @@ class DayPlan(BaseModel):
     hotel: Optional[Hotel] = Field(default=None, description="推荐酒店")
     attractions: List[Attraction] = Field(default_factory=list, description="景点列表")
     meals: List[Meal] = Field(default_factory=list, description="餐饮列表")
+    timeline: List[ScheduleItemV2] = Field(default_factory=list, description="每日时间轴")
+    arrangement_rationale: str = Field(default="", description="安排原因")
 
 
 class WeatherInfo(BaseModel):

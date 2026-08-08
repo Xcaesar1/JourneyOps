@@ -149,6 +149,10 @@ class AttractionV2(BaseModel):
     ticket_price: int = Field(default=0, ge=0)
     reservation_required: bool = False
     reservation_tips: str = Field(default="", max_length=1000)
+    opening_time: time | None = None
+    closing_time: time | None = None
+    closed_dates: list[date] = Field(default_factory=list)
+    source_evidence_ids: list[str] = Field(default_factory=list)
 
 
 class MealV2(BaseModel):
@@ -179,6 +183,27 @@ class HotelV2(BaseModel):
     estimated_cost: int = Field(default=0, ge=0)
 
 
+class ScheduleItemV2(BaseModel):
+    """One contiguous item in a deterministic daily timeline."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    item_id: str = Field(..., min_length=1, max_length=100)
+    item_type: Literal["attraction", "meal", "transport", "free_time"]
+    title: str = Field(..., min_length=1, max_length=300)
+    start: datetime
+    end: datetime
+    duration_minutes: int = Field(..., ge=0, le=2880)
+    location: LocationV2 | None = None
+    reference_name: str | None = Field(default=None, max_length=300)
+    route_estimate_id: str | None = Field(default=None, max_length=80)
+    estimated_cost: int = Field(default=0, ge=0)
+    opening_time: time | None = None
+    closing_time: time | None = None
+    closed_dates: list[date] = Field(default_factory=list)
+    source_evidence_ids: list[str] = Field(default_factory=list)
+
+
 class DayPlanV2(BaseModel):
     """One typed day in a structured trip plan."""
 
@@ -195,6 +220,8 @@ class DayPlanV2(BaseModel):
     hotel: HotelV2 | None = None
     attractions: list[AttractionV2] = Field(default_factory=list)
     meals: list[MealV2] = Field(default_factory=list)
+    timeline: list[ScheduleItemV2] = Field(default_factory=list)
+    arrangement_rationale: str = Field(default="", max_length=2000)
 
 
 class WeatherInfoV2(BaseModel):

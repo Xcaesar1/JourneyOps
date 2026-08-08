@@ -29,6 +29,7 @@ ALLOWED_CHECKPOINT_TYPES = [
     ("backend.app.domain.trip_models", "LocationV2"),
     ("backend.app.domain.trip_models", "MealV2"),
     ("backend.app.domain.trip_models", "RouteEstimateV2"),
+    ("backend.app.domain.trip_models", "ScheduleItemV2"),
     ("backend.app.domain.trip_models", "TripPlanV2"),
     ("backend.app.domain.trip_models", "TripRequestV2"),
     ("backend.app.domain.trip_models", "WeatherInfoV2"),

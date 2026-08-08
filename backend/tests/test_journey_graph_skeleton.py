@@ -117,6 +117,8 @@ def test_compiled_journey_graph_runs_all_phase_three_nodes() -> None:
     assert result["metrics"]["transport_planned"] is True
     assert result["metrics"]["transport_leg_count"] == 2
     assert result["metrics"]["drafted"] is True
+    assert result["metrics"]["timeline_enriched"] is True
+    assert result["metrics"]["budget_recalculated"] is True
     assert result["metrics"]["validated"] is True
     assert result["metrics"]["persisted"] is True
 
@@ -131,6 +133,7 @@ def test_journey_graph_mermaid_contains_ordered_nodes() -> None:
         "collect",
         "plan_intercity_transport",
         "draft",
+        "enrich_plan",
         "validate_stub",
         "persist",
     ]
