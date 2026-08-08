@@ -775,8 +775,9 @@ async def _run_journey_graph_planner(
     request = _to_v2_request(payload)
     await progress_callback("planning", "JourneyGraph structured planning started.", 50)
 
-    def invoke_graph() -> tuple[dict[str, Any], bool]:
+    def invoke_graph() -> tuple[dict[str, Any], bool, bool]:
         config = {"configurable": {"thread_id": task_id}}
+        model_invoked = False
         initial_state = {
             "trip_id": trip_id,
             "task_id": task_id,
@@ -809,11 +810,12 @@ async def _run_journey_graph_planner(
                 state = snapshot.values
             else:
                 state = graph.invoke(initial_state, config)
+                model_invoked = True
             waiting = bool(graph.get_state(config).next)
-        return dict(state), waiting
+        return dict(state), waiting, model_invoked
 
     started = perf_counter()
-    state, waiting = await asyncio.to_thread(invoke_graph)
+    state, waiting, model_invoked = await asyncio.to_thread(invoke_graph)
     graph_latency_ms = round((perf_counter() - started) * 1000)
     plan = TripPlanV2.model_validate(state.get("final_plan") or state["draft_plan"])
     client_response = await _build_client_payload(task_id, request, plan, progress_callback)
@@ -838,7 +840,11 @@ async def _run_journey_graph_planner(
         prompt_version=PROMPT_VERSION,
         workflow_version=WORKFLOW_VERSION,
         tool_versions=TOOL_VERSIONS,
-        metrics={**state.get("metrics", {}), "graph_latency_ms": graph_latency_ms},
+        metrics={
+            **state.get("metrics", {}),
+            "graph_latency_ms": graph_latency_ms,
+            "model_invoked": model_invoked,
+        },
     )
 
 
@@ -947,7 +953,11 @@ async def _run_replan_planner(
         prompt_version=PROMPT_VERSION,
         workflow_version=WORKFLOW_VERSION,
         tool_versions=TOOL_VERSIONS,
-        metrics={**state.get("metrics", {}), "graph_latency_ms": graph_latency_ms},
+        metrics={
+            **state.get("metrics", {}),
+            "graph_latency_ms": graph_latency_ms,
+            "model_invoked": False,
+        },
     )
 
 
@@ -1045,21 +1055,23 @@ def _persist_execution_telemetry(
 ) -> None:
     metrics = execution.metrics or {}
     generation = metrics.get("model_generation", {})
+    model_invoked = execution.engine == "legacy" or bool(metrics.get("model_invoked"))
+    event_generation = generation if model_invoked else {}
     record_telemetry_event(
         session,
         trace_id=trace_id,
         task_id=task_id,
         trip_id=trip_id,
         component="planner",
-        operation="engine_run",
-        status=generation.get("status", "completed"),
+        operation="engine_run" if model_invoked else "engine_resume",
+        status=event_generation.get("status", "completed"),
         node="draft" if execution.engine == "journey_graph" else "legacy_planner",
         latency_ms=int(metrics.get("graph_latency_ms", generation.get("latency_ms", 0)) or 0),
-        input_tokens=int(generation.get("input_tokens", 0) or 0),
-        output_tokens=int(generation.get("output_tokens", 0) or 0),
-        total_tokens=int(generation.get("total_tokens", 0) or 0),
-        model_cost_usd=float(generation.get("model_cost_usd", 0) or 0),
-        retry_count=int(generation.get("retry_count", 0) or 0),
+        input_tokens=int(event_generation.get("input_tokens", 0) or 0),
+        output_tokens=int(event_generation.get("output_tokens", 0) or 0),
+        total_tokens=int(event_generation.get("total_tokens", 0) or 0),
+        model_cost_usd=float(event_generation.get("model_cost_usd", 0) or 0),
+        retry_count=int(event_generation.get("retry_count", 0) or 0),
         model_id=execution.model_id,
         prompt_version=execution.prompt_version,
         workflow_version=execution.workflow_version,
