@@ -12,6 +12,9 @@
               <a-menu-item key="overview">
                 <span>{{ t('result.side.overview') }}</span>
               </a-menu-item>
+              <a-menu-item key="versions" v-if="tripId">
+                <span>{{ t('result.side.versions') }}</span>
+              </a-menu-item>
               <a-menu-item key="sources">
                 <span>{{ t('result.side.sources') }}</span>
               </a-menu-item>
@@ -38,6 +41,13 @@
               <a-button v-if="!editMode" @click="toggleEditMode" type="default">
                 {{ t('result.editTrip') }}
               </a-button>
+              <a-button
+                v-if="!editMode && taskId && currentReview?.status !== 'pending'"
+                type="default"
+                @click="openReplanComposer"
+              >
+                {{ t('result.review.newReplan') }}
+              </a-button>
               <a-button v-else @click="saveChanges" type="primary">
                 {{ t('result.saveChanges') }}
               </a-button>
@@ -51,6 +61,127 @@
             </a-space>
           </div>
         </div>
+
+        <section v-if="currentReview?.status === 'pending' || replanComposerOpen" class="review-console">
+          <div class="review-console-head">
+            <div>
+              <span class="review-eyebrow">HUMAN CHECKPOINT</span>
+              <h1>{{ t('result.review.title') }}</h1>
+              <p>{{ t('result.review.description') }}</p>
+            </div>
+            <div class="review-state">
+              <span>{{ t('result.review.draftBadge') }}</span>
+              <strong>V{{ currentReview?.proposed_version || nextVersionNumber }}</strong>
+            </div>
+          </div>
+
+          <div v-if="currentReview?.status === 'pending'" class="review-impact-row">
+            <span v-if="currentReview.diff?.changed_day_indices?.length">
+              {{ t('result.review.changedDays', { days: formatDayList(currentReview.diff.changed_day_indices) }) }}
+            </span>
+            <span v-if="currentReview.diff?.unchanged_day_indices?.length">
+              {{ t('result.review.preservedDays', { count: currentReview.diff.unchanged_day_indices.length }) }}
+            </span>
+            <span v-if="currentReview.impact_scope?.refresh_research">
+              {{ t('result.review.sourcesRefreshed') }}
+            </span>
+            <span v-if="currentReview.impact_scope?.refresh_routing">
+              {{ t('result.review.routesRefreshed') }}
+            </span>
+          </div>
+
+          <div v-if="currentReview?.status === 'pending' && reviewMode === 'summary'" class="review-actions">
+            <a-button type="primary" :loading="reviewSubmitting" @click="approveCurrentReview">
+              {{ t('result.review.approve') }}
+            </a-button>
+            <a-button :disabled="reviewSubmitting" @click="reviewMode = 'modify'">
+              {{ t('result.review.modify') }}
+            </a-button>
+            <a-button danger :disabled="reviewSubmitting" @click="reviewMode = 'reject'">
+              {{ t('result.review.reject') }}
+            </a-button>
+          </div>
+
+          <div v-else-if="reviewMode === 'modify'" class="review-form">
+            <label class="review-field review-field-wide">
+              <span>{{ t('result.review.instruction') }}</span>
+              <a-textarea
+                v-model:value="replanForm.instruction"
+                :rows="3"
+                :maxlength="2000"
+                :placeholder="t('result.review.instructionPlaceholder')"
+              />
+            </label>
+            <label class="review-field">
+              <span>{{ t('result.review.days') }}</span>
+              <a-select
+                v-model:value="replanForm.day_indices"
+                mode="multiple"
+                :options="dayScopeOptions"
+                :placeholder="t('result.review.allDays')"
+              />
+            </label>
+            <label class="review-field">
+              <span>{{ t('result.review.pace') }}</span>
+              <a-select
+                v-model:value="replanForm.pace"
+                allow-clear
+                :options="paceOptions"
+                :placeholder="t('result.review.keepCurrent')"
+              />
+            </label>
+            <label class="review-field">
+              <span>{{ t('result.review.transport') }}</span>
+              <a-select
+                v-model:value="replanForm.transport_preferences"
+                mode="tags"
+                :placeholder="t('result.review.keepCurrent')"
+              />
+            </label>
+            <label class="review-field">
+              <span>{{ t('result.review.budget') }}</span>
+              <a-input-number
+                v-model:value="replanForm.budget_total"
+                :min="1"
+                :precision="0"
+                :placeholder="t('result.review.keepCurrent')"
+              />
+            </label>
+            <label class="review-field">
+              <span>{{ t('result.review.addAttractions') }}</span>
+              <a-select v-model:value="replanForm.add_attractions" mode="tags" />
+            </label>
+            <label class="review-field">
+              <span>{{ t('result.review.removeAttractions') }}</span>
+              <a-select v-model:value="replanForm.remove_attractions" mode="tags" />
+            </label>
+            <label class="review-refresh">
+              <a-switch v-model:checked="replanForm.refresh_sources" />
+              <span>{{ t('result.review.refreshSources') }}</span>
+            </label>
+            <div class="review-form-actions">
+              <a-button @click="cancelReviewEditor">{{ t('common.cancel') }}</a-button>
+              <a-button type="primary" :loading="reviewSubmitting" @click="submitModification">
+                {{ t('result.review.submitModify') }}
+              </a-button>
+            </div>
+          </div>
+
+          <div v-else-if="currentReview?.status === 'pending'" class="review-reject-form">
+            <a-textarea
+              v-model:value="reviewReason"
+              :rows="3"
+              :maxlength="2000"
+              :placeholder="t('result.review.rejectPlaceholder')"
+            />
+            <div class="review-form-actions">
+              <a-button @click="cancelReviewEditor">{{ t('common.cancel') }}</a-button>
+              <a-button danger :loading="reviewSubmitting" @click="rejectCurrentReview">
+                {{ t('result.review.confirmReject') }}
+              </a-button>
+            </div>
+          </div>
+        </section>
 
       <!-- 主内容区 -->
         <a-card
@@ -169,6 +300,85 @@
               <div v-else class="validation-empty">{{ t('result.execution.noIssues') }}</div>
             </section>
           </div>
+        </a-card>
+
+        <a-card
+          v-show="activeSection === 'versions'"
+          id="versions"
+          :bordered="false"
+          class="versions-card section-shellless"
+        >
+          <div class="versions-heading">
+            <div>
+              <span class="review-eyebrow">IMMUTABLE HISTORY</span>
+              <h2>{{ t('result.versions.title') }}</h2>
+              <p>{{ t('result.versions.description') }}</p>
+            </div>
+            <a-button :loading="versionsLoading" @click="refreshVersions">
+              {{ t('result.versions.refresh') }}
+            </a-button>
+          </div>
+
+          <div v-if="tripVersions.length" class="version-layout">
+            <div class="version-list">
+              <article
+                v-for="version in tripVersions"
+                :key="version.version"
+                :class="['version-row', { 'is-active': version.active }]"
+              >
+                <div class="version-number">V{{ version.version }}</div>
+                <div class="version-copy">
+                  <div>
+                    <strong>{{ getVersionRoleLabel(version.version_role) }}</strong>
+                    <span v-if="version.active" class="active-version-chip">
+                      {{ t('result.versions.active') }}
+                    </span>
+                  </div>
+                  <p>{{ version.change_reason || t('result.versions.noReason') }}</p>
+                  <small>
+                    {{ formatSourceTime(version.created_at) }}
+                    <template v-if="version.parent_version"> · V{{ version.parent_version }}</template>
+                  </small>
+                </div>
+                <a-button
+                  v-if="!version.active"
+                  size="small"
+                  :loading="rollbackLoading === version.version"
+                  @click="restoreVersion(version.version)"
+                >
+                  {{ t('result.versions.restore') }}
+                </a-button>
+              </article>
+            </div>
+
+            <div class="version-compare">
+              <h3>{{ t('result.versions.compareTitle') }}</h3>
+              <div class="compare-controls">
+                <a-select v-model:value="compareFrom" :options="versionOptions" />
+                <span aria-hidden="true">→</span>
+                <a-select v-model:value="compareTo" :options="versionOptions" />
+                <a-button type="primary" :loading="compareLoading" @click="runVersionCompare">
+                  {{ t('result.versions.compare') }}
+                </a-button>
+              </div>
+              <div v-if="versionDiff" class="version-diff">
+                <p>{{ versionDiff.summary }}</p>
+                <div class="diff-scope">
+                  <span>{{ t('result.versions.changed', { days: formatDayList(versionDiff.changed_day_indices) }) }}</span>
+                  <span>{{ t('result.versions.preserved', { count: versionDiff.unchanged_day_indices.length }) }}</span>
+                </div>
+                <div class="diff-entry-list">
+                  <article v-for="(entry, index) in versionDiff.entries" :key="`${entry.path}-${index}`">
+                    <span :class="['diff-operation', `is-${entry.operation}`]">{{ entry.operation }}</span>
+                    <code>{{ entry.path }}</code>
+                    <p>{{ formatDiffValue(entry.before) }} → {{ formatDiffValue(entry.after) }}</p>
+                  </article>
+                </div>
+              </div>
+              <div v-else class="version-empty">{{ t('result.versions.compareEmpty') }}</div>
+            </div>
+          </div>
+          <div v-else class="version-empty">{{ t('result.versions.empty') }}</div>
         </a-card>
 
         <a-card
@@ -758,7 +968,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { computed, reactive, ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
@@ -771,13 +981,42 @@ import { EffectCoverflow, Keyboard, Mousewheel } from 'swiper/modules'
 import NavBar from '@/components/NavBar.vue'
 import OverviewAttractionCard from '@/components/OverviewAttractionCard.vue'
 import AIChat from '@/components/AIChat.vue'
-import type { TripPlan, TripPlanResponse, KnowledgeGraphData, GraphCategory, Attraction, Meal, Hotel, WeatherInfo, SourceEvidence, SourceClaimType, SourceTrustLevel, IntercityTransportMode, RouteEstimateStatus, ScheduleItemType, ValidationIssue, ValidationSeverity } from '@/types'
+import type {
+  Attraction,
+  GraphCategory,
+  Hotel,
+  IntercityTransportMode,
+  KnowledgeGraphData,
+  Meal,
+  PlanDiff,
+  ReplanRequest,
+  RouteEstimateStatus,
+  ScheduleItemType,
+  SourceClaimType,
+  SourceEvidence,
+  SourceTrustLevel,
+  TripPlan,
+  TripPlanResponse,
+  TripReviewRecord,
+  TripTaskRecord,
+  TripVersionRecord,
+  ValidationIssue,
+  ValidationSeverity,
+  WeatherInfo,
+} from '@/types'
 import {
+  compareTripVersions,
   getRuntimeApiBaseUrl,
   getRuntimeMapJsKey,
   getRuntimeGoogleMapsApiKey,
   getBackendRuntimeSettings,
+  getTripTask,
+  getTripVersion,
+  getTripVersions,
   pollTaskStatus,
+  rollbackTripVersion,
+  submitTripReview,
+  waitForTripTask,
   RUNTIME_SETTINGS_UPDATED_EVENT,
 } from '@/services/api'
 
@@ -786,6 +1025,28 @@ const route = useRoute()
 const { t, locale } = useI18n()
 const tripPlan = ref<TripPlan | null>(null)
 const planId = ref('')
+const taskId = ref('')
+const tripId = ref('')
+const currentReview = ref<TripReviewRecord | null>(null)
+const reviewMode = ref<'summary' | 'modify' | 'reject'>('summary')
+const reviewReason = ref('')
+const reviewSubmitting = ref(false)
+const replanComposerOpen = ref(false)
+const tripVersions = ref<TripVersionRecord[]>([])
+const versionsLoading = ref(false)
+const compareLoading = ref(false)
+const rollbackLoading = ref<number | null>(null)
+const compareFrom = ref<number>()
+const compareTo = ref<number>()
+const versionDiff = ref<PlanDiff | null>(null)
+const replanForm = reactive<ReplanRequest>({
+  instruction: '',
+  day_indices: [],
+  transport_preferences: [],
+  add_attractions: [],
+  remove_attractions: [],
+  refresh_sources: false,
+})
 const editMode = ref(false)
 const originalPlan = ref<TripPlan | null>(null)
 const attractionPhotos = ref<Record<string, string>>({})
@@ -801,6 +1062,28 @@ let googleInfoWindows: google.maps.InfoWindow[] = []
 let googleDirectionsRenderers: google.maps.DirectionsRenderer[] = []
 const mapProviderType = ref<'google' | 'amap'>('amap')
 let overviewSwiper: Swiper | null = null
+
+const nextVersionNumber = computed(() => (
+  Math.max(0, ...tripVersions.value.map(version => version.version)) + 1
+))
+
+const dayScopeOptions = computed(() => (
+  tripPlan.value?.days.map(day => ({
+    value: day.day_index,
+    label: t('common.dayNumber', { day: day.day_index + 1 }),
+  })) ?? []
+))
+
+const paceOptions = computed(() => [
+  { value: 'relaxed', label: t('result.review.paces.relaxed') },
+  { value: 'balanced', label: t('result.review.paces.balanced') },
+  { value: 'intensive', label: t('result.review.paces.intensive') },
+])
+
+const versionOptions = computed(() => tripVersions.value.map(version => ({
+  value: version.version,
+  label: `V${version.version}${version.active ? ` · ${t('result.versions.active')}` : ''}`,
+})))
 
 type OverviewAttractionItem = {
   name: string
@@ -1194,6 +1477,208 @@ const restoreTripPlanFromResponse = async (response?: TripPlanResponse | null) =
   return true
 }
 
+const persistWorkflowState = () => {
+  if (taskId.value) sessionStorage.setItem('tripTaskId', taskId.value)
+  if (tripId.value) sessionStorage.setItem('tripId', tripId.value)
+  if (currentReview.value) {
+    sessionStorage.setItem('tripReview', JSON.stringify(currentReview.value))
+  } else {
+    sessionStorage.removeItem('tripReview')
+  }
+}
+
+const refreshVersions = async () => {
+  if (!tripId.value) return
+  versionsLoading.value = true
+  try {
+    tripVersions.value = await getTripVersions(tripId.value)
+    const values = tripVersions.value.map(version => version.version)
+    if (values.length > 1) {
+      if (!compareFrom.value || !values.includes(compareFrom.value)) {
+        compareFrom.value = values[values.length - 2]
+      }
+      if (!compareTo.value || !values.includes(compareTo.value)) {
+        compareTo.value = values[values.length - 1]
+      }
+    } else if (values.length === 1) {
+      compareFrom.value = values[0]
+      compareTo.value = values[0]
+    }
+  } catch (error: any) {
+    message.error(error.message || t('result.versions.loadFailed'))
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+const applyTaskRecord = async (task: TripTaskRecord) => {
+  taskId.value = task.task_id
+  tripId.value = task.trip_id
+  planId.value = task.task_id
+  currentReview.value = task.review || null
+  reviewMode.value = 'summary'
+  replanComposerOpen.value = false
+  persistWorkflowState()
+  sessionStorage.setItem('planId', task.task_id)
+  if (task.result?.data) {
+    await restoreTripPlanFromResponse(task.result)
+  }
+  await refreshVersions()
+}
+
+const resetReplanForm = () => {
+  replanForm.instruction = ''
+  replanForm.day_indices = []
+  replanForm.transport_preferences = []
+  replanForm.budget_total = undefined
+  replanForm.pace = undefined
+  replanForm.add_attractions = []
+  replanForm.remove_attractions = []
+  replanForm.refresh_sources = false
+  reviewReason.value = ''
+}
+
+const openReplanComposer = () => {
+  resetReplanForm()
+  reviewMode.value = 'modify'
+  replanComposerOpen.value = true
+}
+
+const cancelReviewEditor = () => {
+  resetReplanForm()
+  reviewMode.value = 'summary'
+  replanComposerOpen.value = false
+}
+
+const waitForReviewResult = async () => {
+  const task = await waitForTripTask(taskId.value)
+  await applyTaskRecord(task)
+  if (task.status === 'awaiting_approval') {
+    message.success(t('result.review.newDraftReady'))
+  } else if (task.status === 'completed') {
+    message.success(t('result.review.approvedSaved'))
+  } else if (task.status === 'rejected') {
+    message.warning(t('result.review.rejected'))
+  } else if (task.error) {
+    throw new Error(task.error.message)
+  }
+}
+
+const approveCurrentReview = async () => {
+  if (!taskId.value || currentReview.value?.status !== 'pending') return
+  reviewSubmitting.value = true
+  try {
+    await submitTripReview(taskId.value, { action: 'approve' })
+    await waitForReviewResult()
+  } catch (error: any) {
+    message.error(error.message || t('result.review.actionFailed'))
+  } finally {
+    reviewSubmitting.value = false
+  }
+}
+
+const submitModification = async () => {
+  const instruction = replanForm.instruction.trim()
+  if (!taskId.value || !instruction) {
+    message.warning(t('result.review.instructionRequired'))
+    return
+  }
+  reviewSubmitting.value = true
+  try {
+    const changes: ReplanRequest = {
+      instruction,
+      day_indices: [...replanForm.day_indices],
+      add_attractions: replanForm.add_attractions.filter(Boolean),
+      remove_attractions: replanForm.remove_attractions.filter(Boolean),
+      refresh_sources: replanForm.refresh_sources,
+    }
+    if (replanForm.transport_preferences?.length) {
+      changes.transport_preferences = replanForm.transport_preferences.filter(Boolean)
+    }
+    if (replanForm.budget_total !== undefined) changes.budget_total = replanForm.budget_total
+    if (replanForm.pace) changes.pace = replanForm.pace
+    await submitTripReview(taskId.value, {
+      action: 'modify',
+      reason: instruction,
+      changes,
+    })
+    await waitForReviewResult()
+    resetReplanForm()
+  } catch (error: any) {
+    message.error(error.message || t('result.review.actionFailed'))
+  } finally {
+    reviewSubmitting.value = false
+  }
+}
+
+const rejectCurrentReview = async () => {
+  const reason = reviewReason.value.trim()
+  if (!taskId.value || !reason) {
+    message.warning(t('result.review.rejectReasonRequired'))
+    return
+  }
+  reviewSubmitting.value = true
+  try {
+    await submitTripReview(taskId.value, { action: 'reject', reason })
+    await waitForReviewResult()
+  } catch (error: any) {
+    message.error(error.message || t('result.review.actionFailed'))
+  } finally {
+    reviewSubmitting.value = false
+  }
+}
+
+const formatDayList = (days: number[]): string => (
+  days.length ? days.map(day => day + 1).join(', ') : t('result.review.none')
+)
+
+const formatDiffValue = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '∅'
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  return text.length > 180 ? `${text.slice(0, 177)}...` : text
+}
+
+const getVersionRoleLabel = (role: string): string => {
+  const knownRoles = ['primary', 'replan', 'rollback', 'comparison']
+  return knownRoles.includes(role) ? t(`result.versions.roles.${role}`) : role
+}
+
+const runVersionCompare = async () => {
+  if (!tripId.value || compareFrom.value === undefined || compareTo.value === undefined) return
+  compareLoading.value = true
+  try {
+    versionDiff.value = await compareTripVersions(
+      tripId.value,
+      compareFrom.value,
+      compareTo.value
+    )
+  } catch (error: any) {
+    message.error(error.message || t('result.versions.compareFailed'))
+  } finally {
+    compareLoading.value = false
+  }
+}
+
+const restoreVersion = async (version: number) => {
+  if (!tripId.value) return
+  const reason = window.prompt(t('result.versions.restorePrompt', { version }))?.trim()
+  if (!reason) return
+  if (!window.confirm(t('result.versions.restoreConfirm', { version }))) return
+  rollbackLoading.value = version
+  try {
+    const restored = await rollbackTripVersion(tripId.value, version, reason)
+    const detailed = restored.payload ? restored : await getTripVersion(tripId.value, restored.version)
+    if (detailed.payload?.data) await restoreTripPlanFromResponse(detailed.payload)
+    if (taskId.value) await applyTaskRecord(await getTripTask(taskId.value))
+    versionDiff.value = null
+    message.success(t('result.versions.restored', { version: restored.version }))
+  } catch (error: any) {
+    message.error(error.message || t('result.versions.restoreFailed'))
+  } finally {
+    rollbackLoading.value = null
+  }
+}
+
 const destroyCurrentMap = () => {
   // 清理 Google Maps
   googleInfoWindows.forEach((iw) => { try { iw.close() } catch {} })
@@ -1477,9 +1962,29 @@ onMounted(async () => {
     window.addEventListener(RUNTIME_SETTINGS_UPDATED_EVENT, handleRuntimeSettingsUpdated)
   }
   const storedPlanId = String(sessionStorage.getItem('planId') || '')
+  const storedTaskId = String(sessionStorage.getItem('tripTaskId') || '')
   planId.value = String(route.query.plan_id || storedPlanId || '')
+  taskId.value = String(route.query.task_id || storedTaskId || planId.value || '')
+  tripId.value = String(sessionStorage.getItem('tripId') || '')
+  const storedReview = sessionStorage.getItem('tripReview')
+  if (storedReview) {
+    try {
+      currentReview.value = JSON.parse(storedReview)
+    } catch {
+      sessionStorage.removeItem('tripReview')
+    }
+  }
   if (planId.value) {
     sessionStorage.setItem('planId', planId.value)
+  }
+
+  if (taskId.value) {
+    try {
+      await applyTaskRecord(await getTripTask(taskId.value))
+      if (tripPlan.value) return
+    } catch (error) {
+      console.error('结果页从 V2 任务状态恢复失败:', error)
+    }
   }
 
   const cachedPlanId = storedPlanId
@@ -1493,13 +1998,14 @@ onMounted(async () => {
       graph: gd ? JSON.parse(gd) : null,
       planId: planId.value || cachedPlanId,
     })
+    if (tripId.value) await refreshVersions()
     return
   }
 
   if (planId.value) {
     try {
       const task = await pollTaskStatus(planId.value)
-      if (task?.status === 'completed' && task.result) {
+      if (['completed', 'awaiting_approval'].includes(task?.status) && task.result) {
         const restored = await restoreTripPlanFromResponse(task.result)
         if (restored) return
       }
@@ -3310,6 +3816,323 @@ const drawRoutes = async (AMap: any, attractions: any[]): Promise<any[]> => {
   font-weight: 600;
   letter-spacing: 0.04em;
   box-shadow: none !important;
+}
+
+.review-console,
+.versions-card {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 16px;
+  border: 1px solid rgba(215, 110, 66, 0.38);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 88% 8%, rgba(215, 110, 66, 0.18), transparent 32%),
+    linear-gradient(145deg, rgba(28, 42, 50, 0.96), rgba(11, 23, 31, 0.92));
+  box-shadow: 0 18px 52px rgba(3, 10, 15, 0.28);
+}
+
+.review-console {
+  padding: 26px;
+}
+
+.review-console::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #ffad84, #d76e42 54%, transparent);
+}
+
+.review-console-head,
+.versions-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.review-console h1,
+.versions-heading h2 {
+  margin: 7px 0 6px;
+  color: #f8fafc;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+.review-console h1 {
+  font-size: clamp(26px, 3vw, 40px);
+}
+
+.versions-heading h2 {
+  font-size: 30px;
+}
+
+.review-console-head p,
+.versions-heading p {
+  max-width: 720px;
+  margin: 0;
+  color: rgba(222, 232, 239, 0.66);
+  line-height: 1.65;
+}
+
+.review-eyebrow {
+  color: #e99a75;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.review-state {
+  display: grid;
+  min-width: 92px;
+  padding: 12px 15px;
+  border: 1px solid rgba(255, 198, 169, 0.24);
+  border-radius: 14px;
+  background: rgba(7, 17, 24, 0.46);
+  text-align: right;
+}
+
+.review-state span {
+  color: rgba(234, 239, 244, 0.52);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.review-state strong {
+  color: #ffd5c1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 22px;
+}
+
+.review-impact-row,
+.diff-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.review-impact-row span,
+.diff-scope span {
+  padding: 7px 10px;
+  border: 1px solid rgba(231, 239, 246, 0.13);
+  border-radius: 999px;
+  background: rgba(235, 242, 248, 0.06);
+  color: rgba(236, 242, 247, 0.72);
+  font-size: 11px;
+}
+
+.review-actions,
+.review-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.review-form,
+.review-reject-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(235, 242, 248, 0.12);
+}
+
+.review-reject-form,
+.review-field-wide,
+.review-refresh,
+.review-form-actions {
+  grid-column: 1 / -1;
+}
+
+.review-field {
+  display: grid;
+  gap: 8px;
+}
+
+.review-field > span,
+.review-refresh span {
+  color: rgba(238, 243, 248, 0.72);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.review-field :deep(.ant-select),
+.review-field :deep(.ant-input-number) {
+  width: 100%;
+}
+
+.review-field :deep(.ant-select-selector),
+.review-field :deep(.ant-input-number),
+.review-form :deep(.ant-input),
+.review-reject-form :deep(.ant-input) {
+  border-color: rgba(230, 238, 244, 0.18) !important;
+  background: rgba(5, 15, 22, 0.42) !important;
+  color: #f1f5f8 !important;
+}
+
+.review-refresh {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.versions-card :deep(.ant-card-body) {
+  padding: 26px;
+}
+
+.versions-heading {
+  margin-bottom: 22px;
+}
+
+.version-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.45fr);
+  gap: 18px;
+}
+
+.version-list,
+.version-compare {
+  min-width: 0;
+  border: 1px solid rgba(234, 241, 247, 0.12);
+  border-radius: 16px;
+  background: rgba(5, 15, 22, 0.32);
+}
+
+.version-list {
+  padding: 8px;
+}
+
+.version-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 12px;
+  border-radius: 12px;
+}
+
+.version-row + .version-row {
+  border-top: 1px solid rgba(230, 238, 244, 0.08);
+}
+
+.version-row.is-active {
+  background: linear-gradient(110deg, rgba(215, 110, 66, 0.17), rgba(215, 110, 66, 0.03));
+}
+
+.version-number {
+  color: #f0a27d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.version-copy {
+  min-width: 0;
+}
+
+.version-copy strong {
+  color: #f1f5f8;
+}
+
+.version-copy p {
+  margin: 4px 0;
+  overflow: hidden;
+  color: rgba(228, 236, 242, 0.64);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.version-copy small {
+  color: rgba(217, 226, 234, 0.42);
+}
+
+.active-version-chip {
+  margin-left: 8px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(72, 170, 128, 0.18);
+  color: #a8e8c9;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.version-compare {
+  padding: 20px;
+}
+
+.version-compare h3 {
+  margin: 0 0 14px;
+  color: #f3f6f9;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 22px;
+}
+
+.compare-controls {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto minmax(110px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.version-diff > p,
+.version-empty {
+  color: rgba(225, 233, 240, 0.62);
+}
+
+.diff-entry-list {
+  display: grid;
+  gap: 8px;
+  max-height: 430px;
+  margin-top: 16px;
+  overflow-y: auto;
+}
+
+.diff-entry-list article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px 10px;
+  padding: 11px;
+  border-radius: 10px;
+  background: rgba(232, 239, 245, 0.05);
+}
+
+.diff-entry-list code {
+  overflow: hidden;
+  color: #dce6ed;
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.diff-entry-list p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: rgba(218, 228, 235, 0.55);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.diff-operation {
+  color: #eaa17e;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.version-empty {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  text-align: center;
 }
 
 .empty-state-panel {
@@ -5301,6 +6124,54 @@ const drawRoutes = async (AMap: any, attractions: any[]): Promise<any[]> => {
     height: 32px !important;
     padding: 0 10px !important;
     font-size: 11px !important;
+  }
+
+  .review-console,
+  .versions-card :deep(.ant-card-body) {
+    padding: 18px;
+  }
+
+  .review-console-head,
+  .versions-heading {
+    flex-direction: column;
+  }
+
+  .review-state {
+    min-width: 0;
+    width: 100%;
+    text-align: left;
+  }
+
+  .review-form,
+  .version-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .review-actions,
+  .review-form-actions {
+    justify-content: stretch;
+  }
+
+  .review-actions :deep(.ant-btn),
+  .review-form-actions :deep(.ant-btn) {
+    flex: 1;
+  }
+
+  .version-row {
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+
+  .version-row > :deep(.ant-btn) {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .compare-controls {
+    grid-template-columns: 1fr auto 1fr;
+  }
+
+  .compare-controls :deep(.ant-btn) {
+    grid-column: 1 / -1;
   }
 
   .top-info-section {

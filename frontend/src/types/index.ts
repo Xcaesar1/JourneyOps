@@ -205,6 +205,9 @@ export interface TripPlanResponse {
   success: boolean
   message: string
   plan_id?: string
+  task_id?: string
+  trip_id?: string
+  review?: TripReviewRecord
   data?: TripPlan
   graph_data?: KnowledgeGraphData
 }
@@ -220,7 +223,16 @@ export interface TripHistoryItem {
   overall_suggestions?: string
 }
 
-export type TripTaskStatus = 'processing' | 'completed' | 'failed'
+export type TripTaskStatus =
+  | 'queued'
+  | 'processing'
+  | 'retrying'
+  | 'awaiting_approval'
+  | 'cancel_requested'
+  | 'cancelled'
+  | 'completed'
+  | 'rejected'
+  | 'failed'
 
 export type TripTaskStage =
   | 'submitted'
@@ -229,8 +241,12 @@ export type TripTaskStage =
   | 'weather_search'
   | 'hotel_search'
   | 'planning'
+  | 'replanning'
+  | 'review_resume'
+  | 'awaiting_approval'
   | 'graph_building'
   | 'completed'
+  | 'rejected'
   | 'failed'
 
 export interface TripTaskEvent {
@@ -242,6 +258,115 @@ export interface TripTaskEvent {
   message: string
   error?: string
   result?: TripPlanResponse
+  review?: TripReviewRecord
+}
+
+export type ReviewAction = 'approve' | 'modify' | 'reject'
+export type ReviewStatus =
+  | 'requested'
+  | 'pending'
+  | 'changes_requested'
+  | 'approved'
+  | 'rejected'
+  | 'superseded'
+  | 'applied'
+
+export interface ReplanRequest {
+  instruction: string
+  day_indices: number[]
+  transport_preferences?: string[]
+  budget_total?: number
+  pace?: 'relaxed' | 'balanced' | 'intensive'
+  add_attractions: string[]
+  remove_attractions: string[]
+  refresh_sources: boolean
+}
+
+export interface ReviewDecision {
+  action: ReviewAction
+  reason?: string
+  changes?: ReplanRequest
+}
+
+export interface ImpactScope {
+  day_indices: number[]
+  fields: string[]
+  refresh_research: boolean
+  refresh_routing: boolean
+  rebuild_timeline: boolean
+  recalculate_budget: boolean
+}
+
+export interface PlanDiffEntry {
+  path: string
+  operation: 'add' | 'remove' | 'replace'
+  before?: unknown
+  after?: unknown
+}
+
+export interface PlanDiff {
+  from_version?: number | null
+  to_version?: number | null
+  summary: string
+  changed_day_indices: number[]
+  unchanged_day_indices: number[]
+  entries: PlanDiffEntry[]
+}
+
+export interface TripReviewRecord {
+  review_id: string
+  trip_id: string
+  task_id: string
+  workflow_type: 'initial' | 'replan' | 'rollback'
+  status: ReviewStatus
+  base_version?: number | null
+  proposed_version?: number | null
+  parent_review_id?: string | null
+  reason: string
+  change_request?: ReplanRequest | null
+  impact_scope?: ImpactScope | null
+  refreshed_sources: string[]
+  validation_report: ValidationReport
+  diff: PlanDiff
+  preview?: TripPlanResponse | null
+  created_at: string
+  updated_at: string
+  resolved_at?: string | null
+}
+
+export interface TripTaskRecord {
+  task_id: string
+  trip_id: string
+  status: TripTaskStatus
+  stage: string
+  progress: number
+  attempt_count: number
+  max_attempts: number
+  created_at: string
+  updated_at: string
+  started_at?: string | null
+  finished_at?: string | null
+  message: string
+  result?: TripPlanResponse | null
+  review?: TripReviewRecord | null
+  error?: { code: string; message: string } | null
+}
+
+export interface TripVersionRecord {
+  trip_id: string
+  version: number
+  active: boolean
+  parent_version?: number | null
+  planner_engine: string
+  version_role: string
+  schema_version: string
+  review_id?: string | null
+  change_reason: string
+  change_sources: string[]
+  validation_report: ValidationReport
+  created_at: string
+  payload?: TripPlanResponse | null
+  native_payload?: unknown
 }
 
 export interface BackendRuntimeSettings {

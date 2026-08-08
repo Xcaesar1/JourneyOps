@@ -228,6 +228,8 @@ const getStageStatusText = (stage: TripTaskEvent['stage']) => {
   if (stage === 'weather_search') return t('home.loading.queryingWeather')
   if (stage === 'hotel_search') return t('home.loading.recommendingHotels')
   if (stage === 'planning') return t('home.loading.generatingPlan')
+  if (stage === 'replanning' || stage === 'review_resume') return t('home.loading.generatingPlan')
+  if (stage === 'awaiting_approval') return t('home.loading.awaitingApproval')
   if (stage === 'graph_building') return t('home.loading.generatingPlan')
   if (stage === 'completed') return t('home.loading.done')
   return t('home.loading.initializing')
@@ -318,6 +320,9 @@ const handleSubmit = async () => {
     sessionStorage.removeItem('tripPlan')
     sessionStorage.removeItem('graphData')
     sessionStorage.removeItem('planId')
+    sessionStorage.removeItem('tripTaskId')
+    sessionStorage.removeItem('tripId')
+    sessionStorage.removeItem('tripReview')
 
     const requestData: TripFormData = {
       origin: formData.origin.trim(),
@@ -355,8 +360,21 @@ const handleSubmit = async () => {
       if (planId) {
         sessionStorage.setItem('planId', planId)
       }
+      if (response.task_id || planId) {
+        sessionStorage.setItem('tripTaskId', response.task_id || planId)
+      }
+      if (response.trip_id || response.review?.trip_id) {
+        sessionStorage.setItem('tripId', response.trip_id || response.review?.trip_id || '')
+      }
+      if (response.review) {
+        sessionStorage.setItem('tripReview', JSON.stringify(response.review))
+      }
 
-      message.success(t('home.messages.generateSuccess'))
+      message.success(
+        response.review?.status === 'pending'
+          ? t('home.messages.awaitingApproval')
+          : t('home.messages.generateSuccess')
+      )
 
       // 短暂延迟后跳转
       setTimeout(() => {
@@ -370,12 +388,18 @@ const handleSubmit = async () => {
       sessionStorage.removeItem('tripPlan')
       sessionStorage.removeItem('graphData')
       sessionStorage.removeItem('planId')
+      sessionStorage.removeItem('tripTaskId')
+      sessionStorage.removeItem('tripId')
+      sessionStorage.removeItem('tripReview')
       message.error(response.message || t('home.messages.generateFailed'))
     }
   } catch (error: any) {
     sessionStorage.removeItem('tripPlan')
     sessionStorage.removeItem('graphData')
     sessionStorage.removeItem('planId')
+    sessionStorage.removeItem('tripTaskId')
+    sessionStorage.removeItem('tripId')
+    sessionStorage.removeItem('tripReview')
     message.error(error.message || t('home.messages.generateRetry'))
   } finally {
     setTimeout(() => {

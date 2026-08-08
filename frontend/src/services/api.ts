@@ -4,8 +4,13 @@ import type {
   RuntimeSettings,
   TripFormData,
   TripHistoryItem,
+  PlanDiff,
+  ReviewDecision,
   TripPlanResponse,
+  TripReviewRecord,
   TripTaskEvent,
+  TripTaskRecord,
+  TripVersionRecord,
 } from '@/types'
 import { i18n } from '@/i18n'
 
@@ -334,11 +339,30 @@ export async function generateTripPlan(
             safeReject(new Error(t('api.generateTripPlanFailed')))
             return
           }
-          safeResolve(event.result)
+          safeResolve({
+            ...event.result,
+            task_id: event.task_id,
+            trip_id: event.review?.trip_id,
+            review: event.review,
+          })
           return
         }
 
-        if (event.status === 'failed') {
+        if (event.status === 'awaiting_approval') {
+          if (!event.result) {
+            safeReject(new Error(t('api.generateTripPlanFailed')))
+            return
+          }
+          safeResolve({
+            ...event.result,
+            task_id: event.task_id,
+            trip_id: event.review?.trip_id,
+            review: event.review,
+          })
+          return
+        }
+
+        if (['failed', 'cancelled', 'rejected'].includes(event.status)) {
           safeReject(new Error(event.error || event.message || t('api.generateTripPlanFailed')))
         }
       } catch (err) {
@@ -356,6 +380,82 @@ export async function generateTripPlan(
       }
     }
   })
+}
+
+export async function getTripTask(taskId: string): Promise<TripTaskRecord> {
+  const response = await apiClient.get<TripTaskRecord>(`/api/v2/trips/tasks/${taskId}`)
+  return response.data
+}
+
+export async function submitTripReview(
+  taskId: string,
+  decision: ReviewDecision
+): Promise<TripTaskRecord> {
+  const response = await apiClient.post<TripTaskRecord>(
+    `/api/v2/trips/tasks/${taskId}/review`,
+    decision
+  )
+  return response.data
+}
+
+export async function waitForTripTask(
+  taskId: string,
+  options: { timeoutMs?: number; intervalMs?: number } = {}
+): Promise<TripTaskRecord> {
+  const timeoutMs = options.timeoutMs ?? 10 * 60 * 1000
+  const intervalMs = options.intervalMs ?? 1500
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const task = await getTripTask(taskId)
+    if (['awaiting_approval', 'completed', 'rejected', 'failed', 'cancelled'].includes(task.status)) {
+      return task
+    }
+    await new Promise(resolve => window.setTimeout(resolve, intervalMs))
+  }
+  throw new Error('Timed out while waiting for the trip workflow.')
+}
+
+export async function getTripReviews(tripId: string): Promise<TripReviewRecord[]> {
+  const response = await apiClient.get<TripReviewRecord[]>(`/api/v2/trips/${tripId}/reviews`)
+  return response.data
+}
+
+export async function getTripVersions(tripId: string): Promise<TripVersionRecord[]> {
+  const response = await apiClient.get<TripVersionRecord[]>(`/api/v2/trips/${tripId}/versions`)
+  return response.data
+}
+
+export async function getTripVersion(
+  tripId: string,
+  version: number
+): Promise<TripVersionRecord> {
+  const response = await apiClient.get<TripVersionRecord>(
+    `/api/v2/trips/${tripId}/versions/${version}`
+  )
+  return response.data
+}
+
+export async function compareTripVersions(
+  tripId: string,
+  fromVersion: number,
+  toVersion: number
+): Promise<PlanDiff> {
+  const response = await apiClient.get<PlanDiff>(
+    `/api/v2/trips/${tripId}/versions/${fromVersion}/compare/${toVersion}`
+  )
+  return response.data
+}
+
+export async function rollbackTripVersion(
+  tripId: string,
+  version: number,
+  reason: string
+): Promise<TripVersionRecord> {
+  const response = await apiClient.post<TripVersionRecord>(
+    `/api/v2/trips/${tripId}/versions/${version}/rollback`,
+    { reason }
+  )
+  return response.data
 }
 
 /**
