@@ -10,10 +10,10 @@
   <img src="https://img.shields.io/badge/FastAPI-0.100+-teal.svg">
 </p>
 
-> JourneyOps 二次开发状态：阶段 6 已实现初版人工审核、确认/修改/拒绝、局部动态重规划、
-> 结构化差异、不可变版本和回滚。待审核草案不会写入版本；只在确认后推进活动版本，服务重启
-> 或离开页面后仍可继续审核。当前架构、验收、部署和回滚说明见 `docs/ARCHITECTURE.md`、
-> `docs/PHASE_6_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。阶段 7 尚未开始。
+> JourneyOps 二次开发状态：阶段 7 已实现 36 条可复现评测、legacy/JourneyGraph 对比、端到端
+> trace、模型/Prompt/工具/工作流版本清单、token/费用/延迟/重试/缓存遥测，以及访问码、限流、
+> 输入、并发、预算和 Prompt Injection 基础防护。当前验收和回滚说明见
+> `docs/EVALUATION_REPORT.md`、`docs/PHASE_7_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。阶段 8 尚未开始。
 
 <div align="center">
 

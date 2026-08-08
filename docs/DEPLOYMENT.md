@@ -135,14 +135,33 @@ docker compose \
   up -d --no-deps --no-build --force-recreate worker trip-planner
 ```
 
-代码回滚使用审计可见的 revert，不改写历史。数据库仍在 `20260808_04` 时，回滚版本必须保留
-该 revision 文件，或者跳过旧镜像的 migrate service、只替换 API/Worker；阶段 5 旧镜像中的
-Alembic 不认识 `20260808_04`，不能直接运行完整 `compose up`。代码回滚不会自动删除
+代码回滚使用审计可见的 revert，不改写历史。数据库仍在 `20260808_05` 时，回滚版本必须保留
+该 revision 文件，或者跳过旧镜像的 migrate service、只替换 API/Worker；阶段 6 旧镜像中的
+Alembic 不认识 `20260808_05`，不能直接运行完整 `compose up`。代码回滚不会自动删除
 PostgreSQL/Redis volumes。只回滚应用时保留数据卷；确认备份可恢复且明确不再需要对应阶段的
 来源数据或审核/版本审计后，才可人工执行 Alembic downgrade。不得把
 `docker compose down -v` 作为常规回滚命令。
 
 ## Migration Rollback
+
+阶段 7 revision `20260808_05` 增加 trace、版本运行清单和脱敏遥测。应用回滚时优先保留这些
+加法结构；若明确需要回退到阶段 6 schema：
+
+```bash
+docker compose \
+  --env-file .env.staging \
+  -f docker-compose.yaml \
+  -f docker-compose.staging.yaml \
+  stop trip-planner worker
+docker compose \
+  --env-file .env.staging \
+  -f docker-compose.yaml \
+  -f docker-compose.staging.yaml \
+  run --rm migrate alembic -c backend/alembic.ini downgrade 20260808_04
+```
+
+该步骤会删除全部阶段 7 遥测、trace ID 和模型/Prompt/工具/工作流版本清单。必须先保存并验证
+PostgreSQL custom dump；不得为回滚而删除 PostgreSQL 或 Redis volume。
 
 阶段 6 revision `20260808_04` 增加持久审核记录、活动版本指针和版本审计字段。应用回滚时优先
 保留这些加法结构；若明确需要回退到阶段 5 schema：
@@ -167,9 +186,10 @@ revision 管理，默认保留。若还需回退到阶段 3 schema，再单独�
 
 ## Production Promotion Gate
 
-阶段 6 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
+阶段 7 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
 可重复执行且已在 staging 验证的数据导入方案，并核对任务数、终态数和历史结果。该迁移未完成前，
-不得将阶段 6 栈提升为 production，也不得删除旧 JSON volume。
+不得将阶段 7 栈提升为 production，也不得删除旧 JSON volume。公网提升还必须启用并验证应用级
+访问码、确认当前模型单价，并保留现有反向代理认证。
 
 ## Executed Backup Evidence
 
@@ -217,3 +237,14 @@ revision 管理，默认保留。若还需回退到阶段 3 schema，再单独�
 - No-op approval returned `409`; later replan rejection preserved active V3 and the completed result
 - Three configured non-empty sensitive values were absent from task output and API/Worker logs
 - Full matrix, browser verification and residual risks: `docs/PHASE_6_ACCEPTANCE.md`
+
+## Phase 7 Executed Evidence
+
+- 2026-08-08 pre-deploy backup: `/var/backups/tripstar/20260808T102339Z-phase7-predeploy`
+- Deployed source: `2634e73`; image: `journeyops-app:phase7-2634e73`
+- Alembic: `20260808_05`; migration container exit: `0`
+- Live guardrails returned missing access `401`, injection `422`, budget `429` and Redis rate `429`
+- Live cost trace recorded 13,055 tokens, USD 0.00293888 and 56,579 ms on `deepseek-v4-flash`
+- Review resume produced `engine_resume` without increasing token or cost totals
+- Three configured sensitive values had zero matches in telemetry and API/Worker logs
+- Full evaluation, trace evidence and residual risks: `docs/PHASE_7_ACCEPTANCE.md`
