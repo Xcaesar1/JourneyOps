@@ -67,6 +67,17 @@ jobs:
           LANGGRAPH_STRICT_MSGPACK: "true"
         run: python -m pytest
 
+      - name: Offline planner regression evaluation
+        env:
+          PYTHONPATH: .
+        run: python -m backend.scripts.run_evaluation --minimum-pass-rate 0.75 --output artifacts/evaluation-report.json
+
+      - name: Upload evaluation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: journeyops-offline-evaluation
+          path: artifacts/evaluation-report.json
+
   frontend:
     runs-on: ubuntu-latest
 
