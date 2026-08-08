@@ -9,9 +9,9 @@ from backend.app.agents.journey_graph.nodes import (
     collect,
     enrich_plan,
     make_draft_node,
+    make_plan_intercity_transport_node,
     normalize_request,
     persist,
-    make_plan_intercity_transport_node,
     prepare_research_queries,
     validate_stub,
 )
@@ -20,8 +20,8 @@ from backend.app.domain.trip_models import (
     TripPlanV2,
     TripRequestV2,
 )
-from pydantic import ValidationError
 from backend.app.services.routing import NoopRouteEstimateProvider
+from pydantic import ValidationError
 
 
 def _initial_state() -> dict:

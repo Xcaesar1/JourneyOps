@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import httpx
-
 from backend.app.agents.journey_graph.nodes import make_plan_intercity_transport_node
 from backend.app.agents.journey_graph.nodes.normalize import normalize_request
 from backend.app.domain.trip_models import TRIP_REQUEST_V2_EXAMPLE

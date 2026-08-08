@@ -9,12 +9,12 @@ from backend.app.agents.journey_graph.nodes import (
     normalize_request,
 )
 from backend.app.domain.trip_models import (
+    TRIP_REQUEST_V2_EXAMPLE,
     AttractionV2,
     BudgetV2,
     HotelV2,
     LocationV2,
     MealV2,
-    TRIP_REQUEST_V2_EXAMPLE,
 )
 from backend.app.services.routing import NoopRouteEstimateProvider
 
