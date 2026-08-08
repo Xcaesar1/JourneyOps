@@ -10,7 +10,12 @@ from ...domain.research_models import (
     ResearchQuery,
     SourceEvidence,
 )
-from ...domain.trip_models import TripPlanV2, TripRequestV2
+from ...domain.trip_models import (
+    IntercityTransportOptionV2,
+    RouteEstimateV2,
+    TripPlanV2,
+    TripRequestV2,
+)
 from ...domain.validation_models import ValidationReportV2
 
 
@@ -25,7 +30,8 @@ class TripState(TypedDict, total=False):
     provider_metrics: list[ProviderCallMetric]
     poi_candidates: dict[str, list[dict[str, Any]]]
     weather: dict[str, list[dict[str, Any]]]
-    transport_options: list[dict[str, Any]]
+    transport_options: list[IntercityTransportOptionV2]
+    route_estimates: list[RouteEstimateV2]
     draft_plan: TripPlanV2
     validation_report: ValidationReportV2
     revision_count: int

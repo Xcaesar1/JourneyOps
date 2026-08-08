@@ -10,6 +10,7 @@ from backend.app.agents.journey_graph.nodes import (
     make_draft_node,
     normalize_request,
     persist,
+    make_plan_intercity_transport_node,
     prepare_research_queries,
     validate_stub,
 )
@@ -19,6 +20,7 @@ from backend.app.domain.trip_models import (
     TripRequestV2,
 )
 from pydantic import ValidationError
+from backend.app.services.routing import NoopRouteEstimateProvider
 
 
 def _initial_state() -> dict:
@@ -58,9 +60,13 @@ def test_prepare_research_node_returns_five_queries_per_city() -> None:
 
 
 def test_draft_node_returns_typed_plan() -> None:
-    result = make_draft_node(build_placeholder_plan)(_normalized_state())
+    state = _normalized_state()
+    state.update(make_plan_intercity_transport_node(NoopRouteEstimateProvider())(state))
+    result = make_draft_node(build_placeholder_plan)(state)
 
     assert isinstance(result["draft_plan"], TripPlanV2)
+    assert result["draft_plan"].transport_options
+    assert result["draft_plan"].route_matrix
     assert result["metrics"]["drafted"] is True
 
 
@@ -108,6 +114,8 @@ def test_compiled_journey_graph_runs_all_phase_three_nodes() -> None:
     assert result["metrics"]["researched"] is True
     assert result["metrics"]["research_unknown_count"] == 8
     assert result["metrics"]["collected"] is True
+    assert result["metrics"]["transport_planned"] is True
+    assert result["metrics"]["transport_leg_count"] == 2
     assert result["metrics"]["drafted"] is True
     assert result["metrics"]["validated"] is True
     assert result["metrics"]["persisted"] is True
@@ -121,6 +129,7 @@ def test_journey_graph_mermaid_contains_ordered_nodes() -> None:
         "prepare_research_queries",
         "research_web",
         "collect",
+        "plan_intercity_transport",
         "draft",
         "validate_stub",
         "persist",

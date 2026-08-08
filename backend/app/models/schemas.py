@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import date, datetime
 
 from ..domain.research_models import SourceEvidence
+from ..domain.trip_models import IntercityTransportOptionV2, RouteEstimateV2
 
 
 # ============ 请求模型 ============
@@ -182,6 +183,14 @@ class TripPlan(BaseModel):
     start_date: str = Field(..., description="开始日期")
     end_date: str = Field(..., description="结束日期")
     days: List[DayPlan] = Field(..., description="每日行程")
+    transport_options: List[IntercityTransportOptionV2] = Field(
+        default_factory=list,
+        description="城际交通建议",
+    )
+    route_matrix: List[RouteEstimateV2] = Field(
+        default_factory=list,
+        description="路线距离与时长估算",
+    )
     weather_info: List[WeatherInfo] = Field(default_factory=list, description="天气信息")
     overall_suggestions: str = Field(..., description="总体建议")
     budget: Optional[Budget] = Field(default=None, description="预算信息")

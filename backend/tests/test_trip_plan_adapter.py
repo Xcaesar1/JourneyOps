@@ -31,6 +31,8 @@ def test_trip_plan_v2_adapter_matches_current_frontend_contract() -> None:
         "start_date",
         "end_date",
         "days",
+        "transport_options",
+        "route_matrix",
         "weather_info",
         "overall_suggestions",
         "budget",

@@ -212,6 +212,42 @@ class WeatherInfoV2(BaseModel):
     wind_power: str = Field(default="", max_length=120)
 
 
+class RouteEstimateV2(BaseModel):
+    """Provider-backed distance estimate between two itinerary locations."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    estimate_id: str = Field(..., min_length=1, max_length=80)
+    origin: str = Field(..., min_length=1, max_length=200)
+    destination: str = Field(..., min_length=1, max_length=200)
+    mode: Literal["driving", "walking", "straight_line"] = "driving"
+    distance_meters: int | None = Field(default=None, ge=0)
+    duration_minutes: int | None = Field(default=None, ge=0)
+    provider: str = Field(..., min_length=1, max_length=80)
+    status: Literal["verified", "estimated", "unavailable"]
+    detail: str = Field(default="", max_length=1000)
+
+
+class IntercityTransportOptionV2(BaseModel):
+    """Planning-level transport advice without fabricated service identifiers."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    option_id: str = Field(..., min_length=1, max_length=80)
+    leg_index: int = Field(..., ge=0, le=30)
+    origin: str = Field(..., min_length=1, max_length=200)
+    destination: str = Field(..., min_length=1, max_length=200)
+    mode: Literal["train", "flight", "coach", "driving", "public_transit"]
+    recommended: bool = False
+    estimated_duration_minutes: int | None = Field(default=None, ge=0)
+    estimated_cost_per_person: int | None = Field(default=None, ge=0)
+    currency: str = Field(default="CNY", min_length=3, max_length=3)
+    route_estimate_id: str | None = Field(default=None, max_length=80)
+    estimate_status: Literal["verified", "estimated", "unavailable"]
+    advice: str = Field(..., min_length=1, max_length=1000)
+    caveats: list[str] = Field(default_factory=list)
+
+
 class BudgetV2(BaseModel):
     """Typed budget fields; deterministic recalculation arrives in Phase 5."""
 
@@ -237,6 +273,8 @@ class TripPlanV2(BaseModel):
     start_date: date
     end_date: date
     days: list[DayPlanV2] = Field(..., min_length=1, max_length=30)
+    transport_options: list[IntercityTransportOptionV2] = Field(default_factory=list)
+    route_matrix: list[RouteEstimateV2] = Field(default_factory=list)
     weather_info: list[WeatherInfoV2] = Field(default_factory=list)
     overall_suggestions: str = Field(..., min_length=1, max_length=4000)
     budget: BudgetV2 | None = None

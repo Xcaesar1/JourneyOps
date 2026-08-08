@@ -112,6 +112,8 @@ def trip_plan_v2_to_legacy(plan: TripPlanV2) -> TripPlan:
         start_date=plan.start_date.isoformat(),
         end_date=plan.end_date.isoformat(),
         days=days,
+        transport_options=plan.transport_options,
+        route_matrix=plan.route_matrix,
         weather_info=weather,
         overall_suggestions=plan.overall_suggestions,
         budget=budget,

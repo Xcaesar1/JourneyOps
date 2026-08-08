@@ -58,6 +58,8 @@ def make_draft_node(generator: DraftGenerator) -> Callable[[TripState], dict[str
         payload = plan.model_dump(mode="python")
         payload.update(
             {
+                "transport_options": list(state.get("transport_options", [])),
+                "route_matrix": list(state.get("route_estimates", [])),
                 "source_evidence": evidence,
                 "research_updated_at": max(
                     (item.fetched_at for item in evidence),

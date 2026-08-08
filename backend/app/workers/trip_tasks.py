@@ -530,6 +530,7 @@ async def _run_journey_graph_planner(
     from ..agents.journey_graph.checkpoint import open_postgres_checkpointer
     from ..services.knowledge_graph_service import build_knowledge_graph
     from ..services.research import build_configured_web_research_provider
+    from ..services.routing import build_configured_route_estimate_provider
 
     request = _to_v2_request(payload)
     await progress_callback("planning", "JourneyGraph structured planning started.", 50)
@@ -545,6 +546,7 @@ async def _run_journey_graph_planner(
             graph = build_journey_graph(
                 draft_generator=build_structured_plan_generator(),
                 research_provider=build_configured_web_research_provider(),
+                route_provider=build_configured_route_estimate_provider(),
                 checkpointer=checkpointer,
             )
             snapshot = graph.get_state(config)
