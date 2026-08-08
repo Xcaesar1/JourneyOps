@@ -113,6 +113,19 @@ ProviderErrorCode = Literal[
 ]
 
 
+class ProviderCallMetric(BaseModel):
+    """Operational metadata for one provider attempt without request credentials."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    provider: str = Field(..., min_length=1, max_length=120)
+    query_id: UUID
+    latency_ms: int = Field(..., ge=0)
+    success: bool
+    error_code: ProviderErrorCode | None = None
+    cache_hit: bool = False
+
+
 class ProviderIssue(BaseModel):
     """Sanitized provider failure safe for checkpoints, logs, and API responses."""
 
@@ -131,5 +144,5 @@ class ResearchReport(BaseModel):
 
     evidence: list[SourceEvidence] = Field(default_factory=list)
     issues: list[ProviderIssue] = Field(default_factory=list)
+    metrics: list[ProviderCallMetric] = Field(default_factory=list)
     cache_hits: int = Field(default=0, ge=0)
-

@@ -1,12 +1,13 @@
 """配置管理模块"""
 
-import os
 import json
+import os
 from pathlib import Path
-from typing import Any, Dict, List, Literal
+from typing import Any, Literal
+
+from dotenv import load_dotenv
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
 
 # 加载环境变量
 # 首先尝试加载当前目录的.env
@@ -44,6 +45,14 @@ class Settings(BaseSettings):
     # 小红书配置
     xhs_cookie: str = ""
 
+    # 联网研究配置（Key 仅供后端使用，不进入运行时设置 API）
+    brave_search_api_key: str = ""
+    brave_search_base_url: str = "https://api.search.brave.com/res/v1/web/search"
+    web_research_timeout: float = Field(default=10, ge=1, le=60)
+    web_research_result_count: int = Field(default=5, ge=1, le=20)
+    web_research_official_domains: str = ""
+    source_cache_ttl_seconds: int = Field(default=21600, ge=60, le=604800)
+
     # LLM配置 (从环境变量读取,由HelloAgents管理)
     openai_api_key: str = Field(
         default="",
@@ -69,7 +78,7 @@ class Settings(BaseSettings):
         case_sensitive = False
         extra = "ignore"  # 忽略额外的环境变量
 
-    def get_cors_origins_list(self) -> List[str]:
+    def get_cors_origins_list(self) -> list[str]:
         """获取CORS origins列表"""
         return [origin.strip() for origin in self.cors_origins.split(',')]
 
@@ -89,12 +98,12 @@ _RUNTIME_SETTING_KEYS = {
 }
 
 
-def _load_runtime_overrides() -> Dict[str, Any]:
+def _load_runtime_overrides() -> dict[str, Any]:
     """加载本地持久化的运行时配置覆盖项。"""
     if not _RUNTIME_SETTINGS_FILE.exists():
         return {}
     try:
-        with open(_RUNTIME_SETTINGS_FILE, "r", encoding="utf-8") as f:
+        with open(_RUNTIME_SETTINGS_FILE, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             return {k: data[k] for k in _RUNTIME_SETTING_KEYS if k in data}
@@ -103,7 +112,7 @@ def _load_runtime_overrides() -> Dict[str, Any]:
     return {}
 
 
-def _persist_runtime_overrides(overrides: Dict[str, Any]) -> None:
+def _persist_runtime_overrides(overrides: dict[str, Any]) -> None:
     """持久化运行时配置覆盖项。"""
     _RUNTIME_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     with open(_RUNTIME_SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -123,7 +132,7 @@ def _sync_env_from_settings() -> None:
         os.environ["LLM_MODEL_ID"] = settings.openai_model
 
 
-def _apply_runtime_overrides(overrides: Dict[str, Any]) -> None:
+def _apply_runtime_overrides(overrides: dict[str, Any]) -> None:
     """将覆盖项应用到全局 settings 实例。"""
     for key, value in overrides.items():
         if key in _RUNTIME_SETTING_KEYS and hasattr(settings, key):
@@ -140,7 +149,7 @@ def get_settings() -> Settings:
     return settings
 
 
-def get_runtime_settings() -> Dict[str, str]:
+def get_runtime_settings() -> dict[str, str]:
     """获取当前运行时配置（供前端设置页读取）。"""
     return {
         "vite_amap_web_key": settings.vite_amap_web_key or "",
@@ -154,11 +163,11 @@ def get_runtime_settings() -> Dict[str, str]:
     }
 
 
-def update_runtime_settings(updates: Dict[str, Any]) -> Dict[str, str]:
+def update_runtime_settings(updates: dict[str, Any]) -> dict[str, str]:
     """更新并持久化运行时配置。"""
     global _runtime_overrides
 
-    normalized: Dict[str, str] = {}
+    normalized: dict[str, str] = {}
     for key, value in updates.items():
         if key not in _RUNTIME_SETTING_KEYS:
             continue
