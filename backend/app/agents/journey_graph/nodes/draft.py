@@ -46,6 +46,26 @@ def build_placeholder_plan(state: TripState) -> TripPlanV2:
 def make_draft_node(generator: DraftGenerator) -> Callable[[TripState], dict[str, Any]]:
     def draft(state: TripState) -> dict[str, Any]:
         plan = TripPlanV2.model_validate(generator(state))
+        evidence = list(state.get("sources", []))
+        sourced_count = sum(item.url is not None for item in evidence)
+        if sourced_count == 0:
+            research_status = "unavailable"
+        elif sourced_count == len(evidence) and not state.get("research_issues"):
+            research_status = "complete"
+        else:
+            research_status = "partial"
+        payload = plan.model_dump(mode="python")
+        payload.update(
+            {
+                "source_evidence": evidence,
+                "research_updated_at": max(
+                    (item.fetched_at for item in evidence),
+                    default=None,
+                ),
+                "research_status": research_status,
+            }
+        )
+        plan = TripPlanV2.model_validate(payload)
         return {
             "draft_plan": plan,
             "metrics": {**state.get("metrics", {}), "drafted": True},

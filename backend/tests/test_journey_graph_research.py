@@ -63,3 +63,8 @@ def test_graph_persists_source_evidence_and_provider_metrics_in_state() -> None:
     assert result["provider_metrics"][0].provider == "graph-test"
     assert result["metrics"]["research_evidence_count"] == 1
     assert result["errors"] == []
+    assert result["final_plan"].source_evidence == result["sources"]
+    assert result["final_plan"].research_status == "complete"
+    assert result["final_plan"].research_updated_at == datetime(
+        2026, 8, 8, tzinfo=timezone.utc
+    )

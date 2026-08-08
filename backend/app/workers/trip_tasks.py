@@ -28,6 +28,7 @@ from ..db.repository import (
     update_task_state,
 )
 from ..db.session import SessionLocal
+from ..domain.research_models import SourceEvidence
 from ..domain.trip_models import TripPlanV2, TripRequestV2
 from ..models.schemas import CityStay, TripPlanResponse, TripRequest
 from ..services.task_events import publish_task_event, redis_url, task_snapshot
@@ -64,6 +65,7 @@ class PlannerExecution:
     client_payload: dict[str, Any]
     schema_version: str
     native_payload: dict[str, Any] | None = None
+    source_evidence: tuple[SourceEvidence, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -329,6 +331,7 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                     version_role="comparison",
                     schema_version=comparison.schema_version,
                     native_payload=comparison.native_payload,
+                    source_evidence=comparison.source_evidence,
                 )
             primary = planner_runs.primary
             save_trip_version(
@@ -340,6 +343,7 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                 version_role="primary",
                 schema_version=primary.schema_version,
                 native_payload=primary.native_payload,
+                source_evidence=primary.source_evidence,
             )
             completed = update_task_state(
                 session,
@@ -567,6 +571,7 @@ async def _run_journey_graph_planner(
         client_payload=client_response,
         schema_version=native_plan.schema_version,
         native_payload=native_plan.model_dump(mode="json"),
+        source_evidence=tuple(native_plan.source_evidence),
     )
 
 

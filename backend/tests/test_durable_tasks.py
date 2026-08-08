@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from backend.app.db.models import TripTask, TripVersion
+from backend.app.db.models import SourceEvidenceRecord, TripSourceLink, TripTask, TripVersion
 from backend.app.db.repository import create_or_get_task, get_task, save_trip_version
+from backend.app.domain.research_models import SourceEvidence
 from backend.app.domain.trip_models import TRIP_REQUEST_V2_EXAMPLE
 from backend.app.workers import trip_tasks
 from sqlalchemy import func, select
@@ -38,6 +39,95 @@ def test_trip_version_insert_is_idempotent(db_session_factory: sessionmaker[Sess
 
     assert first.id == second.id
     assert count == 1
+
+
+def test_trip_version_persists_source_evidence_and_idempotent_links(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    task_id = _create_task(db_session_factory)
+    evidence = SourceEvidence(
+        id="b3896f49-e6f8-505f-b748-25a8ac89bca1",
+        title="Official notice",
+        url="https://tourism.example/notice",
+        domain="tourism.example",
+        provider="test",
+        claim_type="closure",
+        claim_text="Open during the requested dates.",
+        fetched_at=datetime(2026, 8, 8, 10, tzinfo=timezone.utc),
+        freshness_status="unknown",
+        trust_level="official",
+        confidence=0.9,
+    )
+    with db_session_factory() as session:
+        task = get_task(session, task_id)
+        assert task is not None
+        first = save_trip_version(
+            session,
+            trip_id=task.trip_id,
+            version=1,
+            payload={"success": True},
+            source_evidence=[evidence],
+        )
+        second = save_trip_version(
+            session,
+            trip_id=task.trip_id,
+            version=1,
+            payload={"success": True},
+            source_evidence=[evidence],
+        )
+        source_count = session.scalar(select(func.count()).select_from(SourceEvidenceRecord))
+        link_count = session.scalar(select(func.count()).select_from(TripSourceLink))
+
+    assert first.id == second.id
+    assert source_count == 1
+    assert link_count == 1
+
+
+def test_unknown_source_deduplicates_across_fetch_buckets(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    task_id = _create_task(db_session_factory)
+    base = {
+        "id": "7f558980-3620-55a9-a33a-28770bd1e907",
+        "title": "Source unavailable",
+        "provider": "fallback",
+        "claim_type": "reservation",
+        "claim_text": "No verified source was found.",
+        "freshness_status": "unknown",
+        "trust_level": "unknown",
+        "confidence": 0,
+    }
+    first = SourceEvidence(
+        **base,
+        fetched_at=datetime(2026, 8, 8, 10, tzinfo=timezone.utc),
+    )
+    second = SourceEvidence(
+        **base,
+        fetched_at=datetime(2026, 8, 8, 12, tzinfo=timezone.utc),
+    )
+
+    with db_session_factory() as session:
+        task = get_task(session, task_id)
+        assert task is not None
+        save_trip_version(
+            session,
+            trip_id=task.trip_id,
+            version=1,
+            payload={"success": True},
+            source_evidence=[first],
+        )
+        save_trip_version(
+            session,
+            trip_id=task.trip_id,
+            version=1,
+            payload={"success": True},
+            source_evidence=[second],
+        )
+        source_count = session.scalar(select(func.count()).select_from(SourceEvidenceRecord))
+        link_count = session.scalar(select(func.count()).select_from(TripSourceLink))
+
+    assert source_count == 1
+    assert link_count == 1
 
 
 def test_new_session_reads_running_task_after_api_session_closes(

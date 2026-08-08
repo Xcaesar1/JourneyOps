@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .research_models import SourceEvidence
 
 TRIP_REQUEST_V2_EXAMPLE: dict[str, Any] = {
     "origin": "Shanghai",
@@ -237,6 +239,9 @@ class TripPlanV2(BaseModel):
     weather_info: list[WeatherInfoV2] = Field(default_factory=list)
     overall_suggestions: str = Field(..., min_length=1, max_length=4000)
     budget: BudgetV2 | None = None
+    source_evidence: list[SourceEvidence] = Field(default_factory=list)
+    research_updated_at: datetime | None = None
+    research_status: Literal["complete", "partial", "unavailable"] = "unavailable"
 
     @model_validator(mode="after")
     def validate_plan_window(self) -> TripPlanV2:

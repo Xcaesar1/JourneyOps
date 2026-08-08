@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -10,7 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .models import Trip, TripTask, TripVersion
+from ..domain.research_models import SourceEvidence
+from .models import SourceEvidenceRecord, Trip, TripSourceLink, TripTask, TripVersion
 
 FINAL_TASK_STATUSES = frozenset({"completed", "failed", "cancelled"})
 
@@ -184,6 +187,7 @@ def save_trip_version(
     version_role: str = "primary",
     schema_version: str = "legacy",
     native_payload: dict[str, Any] | None = None,
+    source_evidence: Sequence[SourceEvidence] = (),
 ) -> TripVersion:
     """Insert one immutable version, returning the existing row on redelivery."""
     existing = session.scalar(
@@ -193,6 +197,8 @@ def save_trip_version(
         )
     )
     if existing is not None:
+        _save_source_links(session, existing, source_evidence)
+        session.commit()
         return existing
 
     record = TripVersion(
@@ -206,6 +212,8 @@ def save_trip_version(
     )
     session.add(record)
     try:
+        session.flush()
+        _save_source_links(session, record, source_evidence)
         session.commit()
     except IntegrityError:
         session.rollback()
@@ -220,6 +228,64 @@ def save_trip_version(
         return existing
     session.refresh(record)
     return record
+
+
+def _save_source_links(
+    session: Session,
+    version: TripVersion,
+    evidence_items: Sequence[SourceEvidence],
+) -> None:
+    for evidence in evidence_items:
+        source_bucket = _source_bucket(evidence)
+        evidence_key = _evidence_key(evidence, source_bucket)
+        source = session.scalar(
+            select(SourceEvidenceRecord).where(
+                SourceEvidenceRecord.evidence_key == evidence_key
+            )
+        )
+        if source is None:
+            source = SourceEvidenceRecord(
+                id=str(evidence.id),
+                evidence_key=evidence_key,
+                source_bucket=source_bucket,
+                title=evidence.title,
+                url=str(evidence.url) if evidence.url is not None else None,
+                domain=evidence.domain,
+                provider=evidence.provider,
+                claim_type=evidence.claim_type,
+                claim_text=evidence.claim_text,
+                published_at=evidence.published_at,
+                fetched_at=evidence.fetched_at,
+                freshness_status=evidence.freshness_status,
+                trust_level=evidence.trust_level,
+                confidence=evidence.confidence,
+            )
+            session.add(source)
+            session.flush()
+
+        linked = session.scalar(
+            select(TripSourceLink).where(
+                TripSourceLink.trip_version_id == version.id,
+                TripSourceLink.source_id == source.id,
+            )
+        )
+        if linked is None:
+            session.add(TripSourceLink(trip_version_id=version.id, source_id=source.id))
+
+
+def _source_bucket(evidence: SourceEvidence) -> str:
+    if evidence.url is None:
+        return hashlib.sha256(f"unknown:{evidence.id}".encode()).hexdigest()
+    fetched_at = evidence.fetched_at
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+    bucket = fetched_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H")
+    return hashlib.sha256(f"{evidence.url}\x1f{bucket}".encode()).hexdigest()
+
+
+def _evidence_key(evidence: SourceEvidence, source_bucket: str) -> str:
+    material = f"{source_bucket}\x1f{evidence.claim_type}\x1f{evidence.claim_text}"
+    return hashlib.sha256(material.encode()).hexdigest()
 
 
 def get_trip_version(session: Session, trip_id: str, version: int) -> TripVersion | None:

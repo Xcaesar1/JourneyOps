@@ -9,6 +9,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -105,3 +106,65 @@ class TripVersion(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     trip: Mapped[Trip] = relationship(back_populates="versions")
+    source_links: Mapped[list[TripSourceLink]] = relationship(
+        back_populates="trip_version",
+        cascade="all, delete-orphan",
+    )
+
+
+class SourceEvidenceRecord(Base):
+    """Deduplicated metadata and claim excerpt for one fetched source."""
+
+    __tablename__ = "source_evidence"
+    __table_args__ = (
+        Index("ix_source_evidence_source_bucket", "source_bucket"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    evidence_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    source_bucket: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    url: Mapped[str | None] = mapped_column(Text)
+    domain: Mapped[str] = mapped_column(String(253), default="", nullable=False)
+    provider: Mapped[str] = mapped_column(String(120), nullable=False)
+    claim_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    claim_text: Mapped[str] = mapped_column(Text, nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    freshness_status: Mapped[str] = mapped_column(String(16), nullable=False)
+    trust_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    trip_links: Mapped[list[TripSourceLink]] = relationship(
+        back_populates="source",
+        cascade="all, delete-orphan",
+    )
+
+
+class TripSourceLink(Base):
+    """Idempotent association between an immutable version and its evidence."""
+
+    __tablename__ = "trip_source_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "trip_version_id",
+            "source_id",
+            name="uq_trip_source_links_version_source",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trip_version_id: Mapped[int] = mapped_column(
+        ForeignKey("trip_versions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    source_id: Mapped[str] = mapped_column(
+        ForeignKey("source_evidence.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    trip_version: Mapped[TripVersion] = relationship(back_populates="source_links")
+    source: Mapped[SourceEvidenceRecord] = relationship(back_populates="trip_links")

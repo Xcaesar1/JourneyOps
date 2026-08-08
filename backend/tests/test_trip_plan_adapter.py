@@ -33,6 +33,9 @@ def test_trip_plan_v2_adapter_matches_current_frontend_contract() -> None:
         "weather_info",
         "overall_suggestions",
         "budget",
+        "source_evidence",
+        "research_updated_at",
+        "research_status",
     }
     assert "schema_version" not in payload
     assert payload["days"][0]["date"] == "2026-10-10"

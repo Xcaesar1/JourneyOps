@@ -1,8 +1,10 @@
 """数据模型定义"""
 
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 from pydantic import BaseModel, Field, field_validator, model_validator
-from datetime import date
+from datetime import date, datetime
+
+from ..domain.research_models import SourceEvidence
 
 
 # ============ 请求模型 ============
@@ -176,6 +178,12 @@ class TripPlan(BaseModel):
     weather_info: List[WeatherInfo] = Field(default_factory=list, description="天气信息")
     overall_suggestions: str = Field(..., description="总体建议")
     budget: Optional[Budget] = Field(default=None, description="预算信息")
+    source_evidence: List[SourceEvidence] = Field(default_factory=list, description="来源证据")
+    research_updated_at: Optional[datetime] = Field(default=None, description="来源最近抓取时间")
+    research_status: Literal["complete", "partial", "unavailable"] = Field(
+        default="unavailable",
+        description="联网研究状态",
+    )
 
 
 # ============ 知识图谱数据模型 ============

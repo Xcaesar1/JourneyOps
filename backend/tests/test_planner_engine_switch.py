@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
 from backend.app.config import settings
-from backend.app.db.models import TripVersion
+from backend.app.db.models import SourceEvidenceRecord, TripSourceLink, TripVersion
 from backend.app.db.repository import create_or_get_task, get_task
+from backend.app.domain.research_models import SourceEvidence
 from backend.app.domain.trip_models import TRIP_REQUEST_V2_EXAMPLE, TripRequestV2
 from backend.app.workers import trip_tasks
 from sqlalchemy import select
@@ -170,7 +173,24 @@ def test_worker_persists_primary_and_comparison_versions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     task_id = _create_task(db_session_factory, "planner-comparison-persistence")
-    primary = _execution("journey_graph", "graph-primary")
+    primary = replace(
+        _execution("journey_graph", "graph-primary"),
+        source_evidence=(
+            SourceEvidence(
+                id="b3896f49-e6f8-505f-b748-25a8ac89bca1",
+                title="Official notice",
+                url="https://tourism.example/notice",
+                domain="tourism.example",
+                provider="test",
+                claim_type="closure",
+                claim_text="Open during the requested dates.",
+                fetched_at=datetime(2026, 8, 8, 10, tzinfo=timezone.utc),
+                freshness_status="unknown",
+                trust_level="official",
+                confidence=0.9,
+            ),
+        ),
+    )
     comparison = _execution("legacy", "legacy-comparison")
 
     async def fake_run_set(*_args, **_kwargs):
@@ -199,6 +219,8 @@ def test_worker_persists_primary_and_comparison_versions(
                 .order_by(TripVersion.version)
             )
         )
+        source_count = session.query(SourceEvidenceRecord).count()
+        source_link_count = session.query(TripSourceLink).count()
     assert result["status"] == "completed"
     assert task is not None and task.result_payload == primary.client_payload
     assert [(item.version, item.version_role, item.planner_engine) for item in versions] == [
@@ -208,6 +230,8 @@ def test_worker_persists_primary_and_comparison_versions(
     assert versions[0].schema_version == "2.0"
     assert versions[0].native_payload == primary.native_payload
     assert versions[1].native_payload is None
+    assert source_count == 1
+    assert source_link_count == 1
 
 
 def test_legacy_request_adapts_to_trip_request_v2() -> None:
