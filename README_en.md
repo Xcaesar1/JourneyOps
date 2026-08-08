@@ -35,6 +35,18 @@ docker compose --env-file .env.demo -f docker-compose.yaml -f docker-compose.dem
 
 See [Deployment](docs/DEPLOYMENT.md) for real providers, staging isolation, HTTPS, backup and restore.
 
+## Demo Screenshots
+
+| Complete constraints | Real node progress |
+| --- | --- |
+| ![Complete constraints](docs/assets/phase8/01-form.png) | ![Real node progress](docs/assets/phase8/02-progress.png) |
+| Human approval boundary | Immutable version history |
+| ![Human approval boundary](docs/assets/phase8/03-review.png) | ![Immutable version history](docs/assets/phase8/04-version.png) |
+
+The screenshots use the current frontend production code and a deterministic sanitized Phase 8 fixture. The
+isolated Oracle demo stack was separately verified through the real API, Worker, JourneyGraph, approval and
+persistence path.
+
 ## Runtime Flow
 
 ```mermaid

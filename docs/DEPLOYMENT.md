@@ -22,6 +22,13 @@ curl --fail --silent http://127.0.0.1:17862/health/ready
 公网 TLS 终止示例位于 `deploy/caddy/Caddyfile.example` 和
 `deploy/nginx/journeyops.conf.example`。反向代理只应指向 loopback Compose 端口。
 
+本地前端联调可通过 `VITE_PROXY_TARGET` 指向 API；Vite 会同时代理 HTTP 和 WebSocket：
+
+```powershell
+$env:VITE_PROXY_TARGET = 'http://127.0.0.1:8000'
+npm.cmd --prefix frontend run dev
+```
+
 ## Staging Deploy
 
 ```bash
@@ -38,7 +45,7 @@ chmod 0600 .env.staging
 阶段 8 部署至少显式设置以下非 Secret flags：
 
 ```dotenv
-IMAGE_TAG=phase7-<short-commit>
+IMAGE_TAG=phase8-<short-commit>
 PLANNER_ENGINE=journey_graph
 PLANNER_COMPARE_ENGINES=false
 LEGACY_JSON_REPAIR=true
@@ -208,9 +215,9 @@ revision 管理，默认保留。若还需回退到阶段 3 schema，再单独�
 
 ## Production Promotion Gate
 
-阶段 7 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
+JourneyOps 新栈仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
 可重复执行且已在 staging 验证的数据导入方案，并核对任务数、终态数和历史结果。该迁移未完成前，
-不得将阶段 7 栈提升为 production，也不得删除旧 JSON volume。公网提升还必须启用并验证应用级
+不得将新栈提升为 production，也不得删除旧 JSON volume。公网提升还必须启用并验证应用级
 访问码、确认当前模型单价，并保留现有反向代理认证。
 
 ## Executed Backup Evidence
@@ -270,3 +277,16 @@ revision 管理，默认保留。若还需回退到阶段 3 schema，再单独�
 - Review resume produced `engine_resume` without increasing token or cost totals
 - Three configured sensitive values had zero matches in telemetry and API/Worker logs
 - Full evaluation, trace evidence and residual risks: `docs/PHASE_7_ACCEPTANCE.md`
+
+## Phase 8 Executed Evidence
+
+- 2026-08-08 pre-deploy backup: `/var/backups/tripstar/20260808T132203Z-phase8-predeploy`
+- Deployed source: `f6ec417`; image: `journeyops-app:phase8-f6ec417`
+- Alembic: `20260808_05`; staging `17861`, keyless demo `17862`, and production `17860` readiness all returned
+  `200`
+- API and Worker run as non-root `journeyops`; final build has no credential build arguments or values
+- Real keyless task reached every JourneyGraph stage, paused for approval, created exactly one active immutable
+  version and consumed zero model tokens
+- Production container ID, image, restart count and home-page SHA-256 remained unchanged
+- Browser flow and screenshots: `docs/assets/phase8/`; full matrix and residual risks:
+  `docs/PHASE_8_ACCEPTANCE.md`

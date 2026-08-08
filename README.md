@@ -35,6 +35,16 @@ docker compose --env-file .env.demo -f docker-compose.yaml -f docker-compose.dem
 
 真实 Provider 配置、staging 隔离、HTTPS、备份和恢复见 [部署手册](docs/DEPLOYMENT.md)。
 
+## 演示截图
+
+| 完整约束表单 | 真实节点进度 |
+| --- | --- |
+| ![完整约束表单](docs/assets/phase8/01-form.png) | ![真实节点进度](docs/assets/phase8/02-progress.png) |
+| 人工确认边界 | 不可变版本历史 |
+| ![人工确认边界](docs/assets/phase8/03-review.png) | ![不可变版本历史](docs/assets/phase8/04-version.png) |
+
+截图使用当前前端生产代码和阶段 8 的确定性脱敏 Fixture；Oracle 独立 Demo 栈另行完成真实 API、Worker、JourneyGraph、审批和持久化验收。
+
 ## 核心流程
 
 ```mermaid
