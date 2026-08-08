@@ -17,6 +17,8 @@ _V2_PREFIX = "/api/v2"
 _LOGGER = logging.getLogger(__name__)
 _STATUS_CODE_MAP = {
     400: "bad_request",
+    401: "unauthorized",
+    413: "request_too_large",
     404: "not_found",
     405: "method_not_allowed",
     409: "conflict",

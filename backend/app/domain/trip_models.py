@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -38,6 +38,9 @@ TRIP_REQUEST_V2_EXAMPLE: dict[str, Any] = {
     "timezone": "Asia/Tokyo",
 }
 
+PreferenceText = Annotated[str, Field(min_length=1, max_length=120)]
+PlaceText = Annotated[str, Field(min_length=1, max_length=200)]
+
 
 class CityStayV2(BaseModel):
     """Requested stay duration for a single destination."""
@@ -60,6 +63,7 @@ class TripRequestV2(BaseModel):
     destinations: list[CityStayV2] = Field(
         ...,
         min_length=1,
+        max_length=12,
         description="Ordered destination list with inclusive stay lengths.",
     )
     start_date: date = Field(..., description="Trip start date.")
@@ -73,15 +77,17 @@ class TripRequestV2(BaseModel):
     currency: str = Field(default="CNY", min_length=3, max_length=3, description="Budget currency.")
     travelers: int = Field(default=1, ge=1, le=20, description="Traveler count.")
 
-    transport_preferences: list[str] = Field(default_factory=list, description="Transport preferences.")
+    transport_preferences: list[PreferenceText] = Field(
+        default_factory=list, max_length=8, description="Transport preferences."
+    )
     accommodation_preference: str | None = Field(
         default=None,
         max_length=120,
         description="Accommodation preference.",
     )
-    interests: list[str] = Field(default_factory=list, description="Interest tags.")
-    must_visit: list[str] = Field(default_factory=list, description="Must-visit places.")
-    avoid: list[str] = Field(default_factory=list, description="Items to avoid.")
+    interests: list[PreferenceText] = Field(default_factory=list, max_length=30, description="Interest tags.")
+    must_visit: list[PlaceText] = Field(default_factory=list, max_length=30, description="Must-visit places.")
+    avoid: list[PlaceText] = Field(default_factory=list, max_length=30, description="Items to avoid.")
 
     pace: Literal["relaxed", "balanced", "intensive"] = Field(
         default="balanced",
@@ -95,7 +101,9 @@ class TripRequestV2(BaseModel):
         le=1440,
         description="Optional walking limit per day.",
     )
-    accessibility_needs: list[str] = Field(default_factory=list, description="Accessibility requirements.")
+    accessibility_needs: list[PreferenceText] = Field(
+        default_factory=list, max_length=20, description="Accessibility requirements."
+    )
 
     free_text_input: str = Field(default="", max_length=2000, description="Extra planning context.")
     language: str = Field(default="zh", min_length=2, max_length=8, description="Response language.")

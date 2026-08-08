@@ -206,6 +206,6 @@ def build_structured_plan_generator() -> NativeJsonPlanGenerator:
     return NativeJsonPlanGenerator(
         client,
         model,
-        max_tokens=_environment_int("LLM_STRUCTURED_MAX_TOKENS", 32768),
-        max_attempts=_environment_int("LLM_STRUCTURED_MAX_ATTEMPTS", 2),
+        max_tokens=settings.llm_structured_max_tokens,
+        max_attempts=settings.llm_structured_max_attempts,
     )

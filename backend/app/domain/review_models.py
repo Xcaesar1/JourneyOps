@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .validation_models import ValidationReportV2
 
 ReviewActionV2 = Literal["approve", "modify", "reject"]
+BoundedChangeText = Annotated[str, Field(min_length=1, max_length=200)]
 ReviewStatusV2 = Literal[
     "requested",
     "pending",
@@ -29,11 +30,11 @@ class ReplanRequestV2(BaseModel):
 
     instruction: str = Field(..., min_length=1, max_length=2000)
     day_indices: list[int] = Field(default_factory=list, max_length=30)
-    transport_preferences: list[str] | None = Field(default=None, max_length=8)
+    transport_preferences: list[BoundedChangeText] | None = Field(default=None, max_length=8)
     budget_total: Decimal | None = Field(default=None, gt=0)
     pace: Literal["relaxed", "balanced", "intensive"] | None = None
-    add_attractions: list[str] = Field(default_factory=list, max_length=20)
-    remove_attractions: list[str] = Field(default_factory=list, max_length=20)
+    add_attractions: list[BoundedChangeText] = Field(default_factory=list, max_length=20)
+    remove_attractions: list[BoundedChangeText] = Field(default_factory=list, max_length=20)
     refresh_sources: bool = False
 
     @model_validator(mode="after")

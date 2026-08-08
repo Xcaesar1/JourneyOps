@@ -7,7 +7,15 @@ import json
 from typing import Annotated, Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -22,6 +30,7 @@ from ...db.repository import (
 )
 from ...db.session import SessionLocal, get_db_session
 from ...models.schemas import TripRequest
+from ...services.guardrails import enforce_spend_guardrails
 from ...services.task_events import (
     TASK_STREAM_STOP_STATUSES,
     publish_task_event,
@@ -44,6 +53,7 @@ DbSession = Annotated[Session, Depends(get_db_session)]
 def plan_trip(
     request: TripRequest,
     session: DbSession,
+    http_request: Request,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> dict[str, Any]:
     """Submit a legacy request without using process memory or JSON task files."""
@@ -51,6 +61,7 @@ def plan_trip(
         "contract": "legacy",
         "request": request.model_dump(mode="json"),
     }
+    enforce_spend_guardrails(http_request, session, payload)
     key = _legacy_idempotency_key(payload, idempotency_key)
     try:
         task, created = create_or_get_task(

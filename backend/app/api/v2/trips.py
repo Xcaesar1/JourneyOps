@@ -58,6 +58,7 @@ from ...domain.review_models import (
 )
 from ...domain.task_models import TRIP_TASK_RECORD_V2_EXAMPLE, TripTaskRecordV2
 from ...domain.trip_models import TRIP_REQUEST_V2_EXAMPLE, TripPlanV2, TripRequestV2
+from ...services.guardrails import enforce_spend_guardrails
 from ...services.observability import sanitize_metadata
 from ...services.replanning import diff_plans
 from ...services.task_events import (
@@ -121,6 +122,7 @@ def create_trip(
 ) -> TripTaskRecordV2:
     """Persist before dispatch so an API restart cannot lose accepted work."""
     payload = request.model_dump(mode="json")
+    enforce_spend_guardrails(http_request, session, payload)
     try:
         task, created = create_or_get_task(
             session,
@@ -201,9 +203,10 @@ def cancel_task(task_id: str, session: DbSession) -> TripTaskRecordV2:
     response_model=TripTaskRecordV2,
     summary="Retry a failed or cancelled task",
 )
-def retry_task(task_id: str, session: DbSession) -> TripTaskRecordV2:
+def retry_task(task_id: str, session: DbSession, http_request: Request) -> TripTaskRecordV2:
     """Reset the persisted attempt policy and dispatch a new Celery message."""
     _required_task(session, task_id)
+    enforce_spend_guardrails(http_request, session, {"task_id": task_id, "operation": "retry"})
     try:
         task = prepare_retry(session, task_id)
     except ValueError as exc:
@@ -223,9 +226,15 @@ def review_task(
     task_id: str,
     decision: TripReviewDecisionV2,
     session: DbSession,
+    http_request: Request,
 ) -> TripTaskRecordV2:
     """Persist the human decision before dispatching graph continuation."""
     task = _required_task(session, task_id)
+    enforce_spend_guardrails(
+        http_request,
+        session,
+        {"task_id": task_id, "operation": "review", "decision": decision.model_dump(mode="json")},
+    )
     try:
         if task.status == "completed":
             task, _review = create_replan_review_request(

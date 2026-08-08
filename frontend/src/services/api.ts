@@ -19,6 +19,7 @@ const ENV_AMAP_WEB_JS_KEY = import.meta.env.VITE_AMAP_WEB_JS_KEY ?? ''
 const RUNTIME_API_BASE_STORAGE_KEY = 'tripstar.runtime.api_base_url'
 const RUNTIME_AMAP_WEB_JS_KEY_STORAGE_KEY = 'tripstar.runtime.amap_web_js_key'
 const RUNTIME_GOOGLE_MAPS_API_KEY_STORAGE_KEY = 'tripstar.runtime.google_maps_api_key'
+const API_ACCESS_CODE_STORAGE_KEY = 'journeyops.api_access_code'
 const DEFAULT_RUNTIME_BACKEND_SETTINGS: BackendRuntimeSettings = {
   vite_amap_web_key: '',
   vite_amap_web_js_key: '',
@@ -163,6 +164,10 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     config.baseURL = getRuntimeApiBaseUrl()
+    if (typeof window !== 'undefined') {
+      const accessCode = window.sessionStorage.getItem(API_ACCESS_CODE_STORAGE_KEY)
+      if (accessCode) config.headers.set('X-Access-Code', accessCode)
+    }
     console.log('发送请求:', config.method?.toUpperCase(), config.url)
     return config
   },
@@ -171,6 +176,13 @@ apiClient.interceptors.request.use(
     return Promise.reject(error)
   }
 )
+
+export function setApiAccessCode(accessCode: string): void {
+  if (typeof window === 'undefined') return
+  const normalized = accessCode.trim()
+  if (normalized) window.sessionStorage.setItem(API_ACCESS_CODE_STORAGE_KEY, normalized)
+  else window.sessionStorage.removeItem(API_ACCESS_CODE_STORAGE_KEY)
+}
 
 // 响应拦截器
 apiClient.interceptors.response.use(

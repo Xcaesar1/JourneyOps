@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings
 
 # 加载环境变量
@@ -74,6 +74,19 @@ class Settings(BaseSettings):
     # Phase 7 observability and budget accounting. Prices are operator-supplied.
     llm_input_cost_per_million_usd: float = Field(default=0, ge=0)
     llm_output_cost_per_million_usd: float = Field(default=0, ge=0)
+    llm_structured_max_tokens: int = Field(default=32768, ge=512, le=384000)
+    llm_structured_max_attempts: int = Field(default=2, ge=1, le=3)
+    llm_max_tokens_per_trip: int = Field(default=80000, ge=1024, le=1000000)
+    llm_max_cost_per_trip_usd: float = Field(default=2.0, gt=0, le=1000)
+
+    # Cost-bearing API protection. Access codes are never exposed by runtime settings.
+    api_access_code_required: bool = False
+    api_access_code: SecretStr = SecretStr("")
+    api_rate_limit_enabled: bool = False
+    api_rate_limit_requests: int = Field(default=6, ge=1, le=10000)
+    api_rate_limit_window_seconds: int = Field(default=60, ge=1, le=86400)
+    api_max_active_trip_tasks: int = Field(default=4, ge=1, le=1000)
+    api_max_request_bytes: int = Field(default=32768, ge=1024, le=1048576)
 
     # 日志配置
     log_level: str = "INFO"
@@ -188,6 +201,8 @@ def update_runtime_settings(updates: dict[str, Any]) -> dict[str, str]:
 def validate_config():
     """验证配置是否完整"""
     warnings = []
+    if settings.api_access_code_required and not settings.api_access_code.get_secret_value():
+        raise ValueError("API_ACCESS_CODE is required when API_ACCESS_CODE_REQUIRED=true")
 
     if not settings.vite_amap_web_key:
         warnings.append("VITE_AMAP_WEB_KEY未配置，景点地理编码等功能将不可用")

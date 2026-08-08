@@ -43,7 +43,7 @@ jobs:
         run: python -m pip install --upgrade pip && python -m pip install -r backend/requirements-dev.txt
 
       - name: Ruff on staged architecture
-        run: python -m ruff check backend/app/agents/journey_graph backend/app/api/v2 backend/app/db backend/app/domain backend/app/workers backend/app/services/task_events.py backend/scripts backend/tests tests
+        run: python -m ruff check backend/app/agents/journey_graph backend/app/api/v2 backend/app/db backend/app/domain backend/app/workers backend/app/services/task_events.py backend/app/services/observability.py backend/app/services/guardrails.py backend/scripts backend/tests tests
 
       - name: Ruff critical checks on existing backend code
         run: python -m ruff check backend/app --select E9,F63,F7,F82
