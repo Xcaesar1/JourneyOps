@@ -122,4 +122,6 @@ def trip_plan_v2_to_legacy(plan: TripPlanV2) -> TripPlan:
         source_evidence=plan.source_evidence,
         research_updated_at=plan.research_updated_at,
         research_status=plan.research_status,
+        validation_report=plan.validation_report,
+        revision_count=plan.revision_count,
     )

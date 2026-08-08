@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .research_models import SourceEvidence
+from .validation_models import ValidationReportV2
 
 TRIP_REQUEST_V2_EXAMPLE: dict[str, Any] = {
     "origin": "Shanghai",
@@ -308,6 +309,8 @@ class TripPlanV2(BaseModel):
     source_evidence: list[SourceEvidence] = Field(default_factory=list)
     research_updated_at: datetime | None = None
     research_status: Literal["complete", "partial", "unavailable"] = "unavailable"
+    validation_report: ValidationReportV2 = Field(default_factory=ValidationReportV2)
+    revision_count: int = Field(default=0, ge=0, le=2)
 
     @model_validator(mode="after")
     def validate_plan_window(self) -> TripPlanV2:

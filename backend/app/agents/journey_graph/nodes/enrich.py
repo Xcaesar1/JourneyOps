@@ -121,6 +121,45 @@ def _build_day_timeline(
     previous_location: LocationV2 | None = None
     activities = _ordered_activities(day)
 
+    transfer_leg_index: int | None = None
+    day_offset = 0
+    for destination_index, destination in enumerate(request.destinations):
+        if day.day_index == day_offset:
+            previous_city = request.origin if destination_index == 0 else request.destinations[destination_index - 1].city
+            if previous_city != destination.city:
+                transfer_leg_index = destination_index
+            break
+        day_offset += destination.days
+    recommended_transfer = next(
+        (
+            option
+            for option in state.get("transport_options", [])
+            if option.leg_index == transfer_leg_index and option.recommended
+        ),
+        None,
+    )
+    if recommended_transfer is not None:
+        transfer_minutes = recommended_transfer.estimated_duration_minutes or 120
+        transfer_end = current + timedelta(minutes=transfer_minutes)
+        timeline.append(
+            ScheduleItemV2(
+                item_id=_item_id(
+                    day.day_index,
+                    "transport",
+                    -1,
+                    recommended_transfer.option_id,
+                ),
+                item_type="transport",
+                title=f"{recommended_transfer.origin} → {recommended_transfer.destination}",
+                start=current,
+                end=transfer_end,
+                duration_minutes=transfer_minutes,
+                route_estimate_id=recommended_transfer.route_estimate_id,
+                estimated_cost=recommended_transfer.estimated_cost_per_person or 0,
+            )
+        )
+        current = transfer_end
+
     for position, (item_type, activity) in enumerate(activities):
         if previous_name is not None:
             route = _local_route(
@@ -207,9 +246,18 @@ def _build_day_timeline(
         if language.startswith("zh")
         else "Activities keep their recommended order, include explicit transfers, and preserve remaining time as a rest buffer."
     )
-    return day.model_copy(
-        update={"timeline": timeline, "arrangement_rationale": rationale}
-    ), routes, local_transport_cost
+    update: dict[str, Any] = {
+        "timeline": timeline,
+        "arrangement_rationale": rationale,
+    }
+    if recommended_transfer is not None:
+        update.update(
+            {
+                "is_transfer_day": True,
+                "transfer_info": recommended_transfer.advice,
+            }
+        )
+    return day.model_copy(update=update), routes, local_transport_cost
 
 
 def _calculate_budget(

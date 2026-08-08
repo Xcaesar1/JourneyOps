@@ -10,6 +10,7 @@ from ..domain.trip_models import (
     RouteEstimateV2,
     ScheduleItemV2,
 )
+from ..domain.validation_models import ValidationReportV2
 
 
 # ============ 请求模型 ============
@@ -206,6 +207,11 @@ class TripPlan(BaseModel):
         default="unavailable",
         description="联网研究状态",
     )
+    validation_report: ValidationReportV2 = Field(
+        default_factory=ValidationReportV2,
+        description="确定性校验报告",
+    )
+    revision_count: int = Field(default=0, ge=0, le=2, description="自动修订次数")
 
 
 # ============ 知识图谱数据模型 ============

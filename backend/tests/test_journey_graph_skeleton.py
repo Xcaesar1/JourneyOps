@@ -7,6 +7,7 @@ from backend.app.agents.journey_graph import build_journey_graph
 from backend.app.agents.journey_graph.nodes import (
     build_placeholder_plan,
     collect,
+    enrich_plan,
     make_draft_node,
     normalize_request,
     persist,
@@ -34,6 +35,14 @@ def _initial_state() -> dict:
 def _normalized_state() -> dict:
     initial = _initial_state()
     return {**initial, **normalize_request(initial)}
+
+
+def _enriched_state() -> dict:
+    state = _normalized_state()
+    state.update(make_plan_intercity_transport_node(NoopRouteEstimateProvider())(state))
+    state.update(make_draft_node(build_placeholder_plan)(state))
+    state.update(enrich_plan(state))
+    return state
 
 
 def test_normalize_request_node_returns_typed_request() -> None:
@@ -71,8 +80,7 @@ def test_draft_node_returns_typed_plan() -> None:
 
 
 def test_validate_stub_node_returns_typed_report() -> None:
-    state = _normalized_state()
-    state["draft_plan"] = build_placeholder_plan(state)
+    state = _enriched_state()
 
     result = validate_stub(state)
 
@@ -81,8 +89,7 @@ def test_validate_stub_node_returns_typed_report() -> None:
 
 
 def test_persist_node_finalizes_valid_typed_plan() -> None:
-    state = _normalized_state()
-    state["draft_plan"] = build_placeholder_plan(state)
+    state = _enriched_state()
     state.update(validate_stub(state))
 
     result = persist(state)
@@ -94,8 +101,9 @@ def test_persist_node_finalizes_valid_typed_plan() -> None:
 def test_journey_graph_nodes_are_independently_executable() -> None:
     state = {**_initial_state(), **normalize_request(_initial_state())}
     state.update(collect(state))
-    plan = build_placeholder_plan(state)
-    state["draft_plan"] = plan
+    state.update(make_plan_intercity_transport_node(NoopRouteEstimateProvider())(state))
+    state.update(make_draft_node(build_placeholder_plan)(state))
+    state.update(enrich_plan(state))
     state.update(validate_stub(state))
     state.update(persist(state))
 
@@ -134,7 +142,7 @@ def test_journey_graph_mermaid_contains_ordered_nodes() -> None:
         "plan_intercity_transport",
         "draft",
         "enrich_plan",
-        "validate_stub",
+        "deterministic_validate",
         "persist",
     ]
     assert all(node in mermaid for node in expected_nodes)
