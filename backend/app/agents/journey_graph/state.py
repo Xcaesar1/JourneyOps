@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from ...domain.research_models import ResearchQuery, SourceEvidence
+from ...domain.research_models import (
+    ProviderCallMetric,
+    ProviderIssue,
+    ResearchQuery,
+    SourceEvidence,
+)
 from ...domain.trip_models import TripPlanV2, TripRequestV2
 from ...domain.validation_models import ValidationReportV2
 
@@ -16,6 +21,8 @@ class TripState(TypedDict, total=False):
     traveler_profile: dict[str, Any]
     research_queries: list[ResearchQuery]
     sources: list[SourceEvidence]
+    research_issues: list[ProviderIssue]
+    provider_metrics: list[ProviderCallMetric]
     poi_candidates: dict[str, list[dict[str, Any]]]
     weather: dict[str, list[dict[str, Any]]]
     transport_options: list[dict[str, Any]]

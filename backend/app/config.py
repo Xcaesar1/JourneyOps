@@ -44,6 +44,7 @@ class Settings(BaseSettings):
 
     # 小红书配置
     xhs_cookie: str = ""
+    xhs_enabled: bool = False
 
     # 联网研究配置（Key 仅供后端使用，不进入运行时设置 API）
     brave_search_api_key: str = ""

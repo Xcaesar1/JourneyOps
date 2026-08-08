@@ -6,11 +6,26 @@ from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from ...domain.research_models import (
+    CommunityResearchResult,
     ResearchQuery,
     ResearchReport,
     SourceEvidence,
     WebSearchResult,
 )
+
+
+@runtime_checkable
+class CommunityResearchProvider(Protocol):
+    """Optional source for subjective community experience only."""
+
+    name: str
+
+    async def research(
+        self,
+        city: str,
+        keywords: str,
+        language: str,
+    ) -> CommunityResearchResult: ...
 
 
 @runtime_checkable

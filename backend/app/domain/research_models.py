@@ -146,3 +146,14 @@ class ResearchReport(BaseModel):
     issues: list[ProviderIssue] = Field(default_factory=list)
     metrics: list[ProviderCallMetric] = Field(default_factory=list)
     cache_hits: int = Field(default=0, ge=0)
+
+
+class CommunityResearchResult(BaseModel):
+    """Optional community context that can never fail the main planning flow."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    provider: str = Field(..., min_length=1, max_length=120)
+    status: Literal["available", "disabled", "empty", "unavailable"]
+    context: str = Field(default="", max_length=20000)
+    error_code: ProviderErrorCode | None = None

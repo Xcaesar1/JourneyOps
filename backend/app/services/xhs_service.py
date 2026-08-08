@@ -308,7 +308,7 @@ def search_xhs_attractions(city: str, keywords: str, language: str = "zh") -> st
     except XHSCookieExpiredError:
         raise
     except Exception as e:
-        print(f"❌ 小红书接口抓取崩盘: {e}")
+        print(f"❌ 小红书接口抓取失败，已转为社区来源降级 ({type(e).__name__})")
         raise XHSCookieExpiredError(
             f"小红书访问超时或 Cookie 失效(风控拦截)，抓取失败。请更新 XHS_COOKIE"
         )
@@ -393,7 +393,7 @@ JSON 返回示例:
         return final_result
 
     except Exception as e:
-        print(f"❌ 大模型提纯小红书数据异常: {e}")
+        print(f"❌ 小红书内容提取失败，已转为社区来源降级 ({type(e).__name__})")
         return "尝试提取小红书结构化数据失败，降级回常规处理。"
 
 

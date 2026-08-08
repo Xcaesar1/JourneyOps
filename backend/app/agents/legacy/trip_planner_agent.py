@@ -456,7 +456,7 @@ class MultiAgentTripPlanner:
             print(f"偏好: {', '.join(request.preferences) if request.preferences else '无'}")
             print(f"{'='*60}\n")
 
-            from ...services.xhs_service import search_xhs_attractions
+            from ...services.research import build_community_research_provider
             keywords = request.preferences[0] if request.preferences else "景点"
             _lang = (getattr(request, 'language', 'zh') or 'zh').strip().lower().split('-')[0]
             _lang_hint = "" if _lang == "zh" else f" Please respond in {'English' if _lang == 'en' else _lang}."
@@ -465,6 +465,7 @@ class MultiAgentTripPlanner:
             all_attractions: Dict[str, str] = {}
             all_weather: Dict[str, str] = {}
             all_hotels: Dict[str, str] = {}
+            community_provider = build_community_research_provider()
 
             for idx, city_stay in enumerate(cities):
                 city = city_stay.city
@@ -480,11 +481,13 @@ class MultiAgentTripPlanner:
                     f"正在搜索 {city} 的景点...{city_label}",
                     progress_base
                 )
-                attraction_response = await asyncio.to_thread(
-                    search_xhs_attractions, city, keywords, _lang
-                )
+                community_result = await community_provider.research(city, keywords, _lang)
+                attraction_response = community_result.context
                 all_attractions[city] = attraction_response
-                print(f"📍 {city} 景点搜索结果: {attraction_response[:150]}...")
+                print(
+                    f"📍 {city} 社区景点来源状态: {community_result.status}; "
+                    f"结果: {attraction_response[:150]}..."
+                )
 
                 # [2] 天气查询
                 print(f"  [{idx+1}/{total_cities}] 正在查询 {city} 的天气...")

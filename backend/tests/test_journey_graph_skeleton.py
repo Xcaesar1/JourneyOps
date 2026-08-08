@@ -10,6 +10,7 @@ from backend.app.agents.journey_graph.nodes import (
     make_draft_node,
     normalize_request,
     persist,
+    prepare_research_queries,
     validate_stub,
 )
 from backend.app.domain.trip_models import (
@@ -47,6 +48,13 @@ def test_collect_node_returns_structured_provider_boundaries() -> None:
     assert result["poi_candidates"] == {"Tokyo": [], "Kyoto": []}
     assert result["weather"] == {"Tokyo": [], "Kyoto": []}
     assert result["metrics"]["collected"] is True
+
+
+def test_prepare_research_node_returns_five_queries_per_city() -> None:
+    result = prepare_research_queries(_normalized_state())
+
+    assert len(result["research_queries"]) == 10
+    assert result["metrics"]["research_prepared"] is True
 
 
 def test_draft_node_returns_typed_plan() -> None:
@@ -95,19 +103,28 @@ def test_compiled_journey_graph_runs_all_phase_three_nodes() -> None:
     result = build_journey_graph().invoke(_initial_state())
 
     assert isinstance(result["final_plan"], TripPlanV2)
-    assert result["metrics"] == {
-        "normalized": True,
-        "collected": True,
-        "drafted": True,
-        "validated": True,
-        "persisted": True,
-    }
+    assert result["metrics"]["normalized"] is True
+    assert result["metrics"]["research_prepared"] is True
+    assert result["metrics"]["researched"] is True
+    assert result["metrics"]["research_unknown_count"] == 8
+    assert result["metrics"]["collected"] is True
+    assert result["metrics"]["drafted"] is True
+    assert result["metrics"]["validated"] is True
+    assert result["metrics"]["persisted"] is True
 
 
 def test_journey_graph_mermaid_contains_ordered_nodes() -> None:
     mermaid = build_journey_graph().get_graph().draw_mermaid()
 
-    expected_nodes = ["normalize_request", "collect", "draft", "validate_stub", "persist"]
+    expected_nodes = [
+        "normalize_request",
+        "prepare_research_queries",
+        "research_web",
+        "collect",
+        "draft",
+        "validate_stub",
+        "persist",
+    ]
     assert all(node in mermaid for node in expected_nodes)
     assert mermaid.index("normalize_request") < mermaid.index("persist")
 

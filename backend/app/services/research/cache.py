@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
 from collections.abc import Callable, Sequence
 
-from redis.asyncio import Redis
+from redis import Redis
 
 from ...domain.research_models import ResearchQuery, SourceEvidence
 
@@ -79,7 +80,7 @@ class RedisResearchCache:
         return f"{self._namespace}:{digest}"
 
     async def get(self, provider: str, query: ResearchQuery) -> list[SourceEvidence] | None:
-        payload = await self._client.get(self._key(provider, query))
+        payload = await asyncio.to_thread(self._client.get, self._key(provider, query))
         if payload is None:
             return None
         try:
@@ -102,4 +103,9 @@ class RedisResearchCache:
             ensure_ascii=True,
             separators=(",", ":"),
         )
-        await self._client.set(self._key(provider, query), payload, ex=ttl_seconds)
+        await asyncio.to_thread(
+            self._client.set,
+            self._key(provider, query),
+            payload,
+            ex=ttl_seconds,
+        )
