@@ -17,6 +17,7 @@ services:
     container_name: journeyops-worker-demo
     environment:
       DEMO_MODE: "true"
+      DEMO_NODE_DELAY_SECONDS: "0.35"
       PLANNER_ENGINE: journey_graph
       PLANNER_COMPARE_ENGINES: "false"
       XHS_ENABLED: "false"
@@ -29,6 +30,7 @@ services:
       - "127.0.0.1:17862:7860"
     environment:
       DEMO_MODE: "true"
+      DEMO_NODE_DELAY_SECONDS: "0.35"
       PLANNER_ENGINE: journey_graph
       PLANNER_COMPARE_ENGINES: "false"
       XHS_ENABLED: "false"

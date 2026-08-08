@@ -9,7 +9,7 @@ import re
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from time import perf_counter
+from time import perf_counter, sleep
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -807,6 +807,8 @@ async def _run_journey_graph_planner(
     def observe_node(node_name: str) -> None:
         stage, message, progress = node_progress[node_name]
         asyncio.run(progress_callback(stage, message, progress))
+        if settings.demo_mode and settings.demo_node_delay_seconds:
+            sleep(settings.demo_node_delay_seconds)
 
     def invoke_graph() -> tuple[dict[str, Any], bool, bool]:
         config = {"configurable": {"thread_id": task_id}}

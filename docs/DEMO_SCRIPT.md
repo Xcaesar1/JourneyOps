@@ -16,7 +16,8 @@ scoped rather than regenerating everything.
 
 Enter an origin, one or more destinations, date, budget, traveler count, pace, daily time window and walking
 limit. Submit and point out that the UI is displaying Worker-emitted JourneyGraph node events rather than a fake
-timer. Mention that the Demo badge means external Provider calls are intentionally disabled.
+timer. The demo-only `0.35s` node display window makes each real transition visible; live mode adds no delay.
+Mention that the Demo badge means external Provider calls are intentionally disabled.
 
 ## 1:30–2:30 — Inspect And Approve
 
