@@ -93,77 +93,21 @@
                 </template>
                 <a-input-password v-model:value="settingsForm.vite_amap_web_js_key" allow-clear />
               </a-form-item>
-
-              <a-form-item>
-                <template #label>
-                  <span class="field-label">{{ t('settings.labels.amapWebKey') }}</span>
-                </template>
-                <a-input-password v-model:value="settingsForm.vite_amap_web_key" allow-clear />
-              </a-form-item>
-
-              <a-form-item>
-                <template #label>
-                  <span class="field-label">{{ t('settings.labels.googleMapsApiKey') }}</span>
-                </template>
-                <a-input-password
-                  v-model:value="settingsForm.google_maps_api_key"
-                  :placeholder="t('settings.placeholders.googleMapsApiKey')"
-                  allow-clear
-                />
-              </a-form-item>
-
-              <a-form-item>
-                <template #label>
-                  <span class="field-label">{{ t('settings.labels.googleMapsProxy') }}</span>
-                </template>
-                <a-input
-                  v-model:value="settingsForm.google_maps_proxy"
-                  :placeholder="t('settings.placeholders.googleMapsProxy')"
-                  allow-clear
-                />
-              </a-form-item>
-
-              <a-form-item>
-                <template #label>
-                  <span class="field-label">{{ t('settings.labels.openaiBaseUrl') }}</span>
-                </template>
-                <a-input
-                  v-model:value="settingsForm.openai_base_url"
-                  :placeholder="t('settings.placeholders.openaiBaseUrl')"
-                  allow-clear
-                />
-              </a-form-item>
-
-              <a-form-item>
-                <template #label>
-                  <span class="field-label">{{ t('settings.labels.openaiModel') }}</span>
-                </template>
-                <a-input
-                  v-model:value="settingsForm.openai_model"
-                  :placeholder="t('settings.placeholders.openaiModel')"
-                  allow-clear
-                />
-              </a-form-item>
-
-              <a-form-item>
-                <template #label>
-                  <span class="field-label">{{ t('settings.labels.openaiApiKey') }}</span>
-                </template>
-                <a-input-password v-model:value="settingsForm.openai_api_key" allow-clear />
-              </a-form-item>
             </div>
-
-            <a-form-item class="runtime-settings-full">
-              <template #label>
-                <span class="field-label">{{ t('settings.labels.xhsCookie') }}</span>
-              </template>
-              <a-textarea
-                v-model:value="settingsForm.xhs_cookie"
-                :rows="4"
-                :placeholder="t('settings.placeholders.xhsCookie')"
-                allow-clear
-              />
-            </a-form-item>
+            <div class="runtime-status-panel">
+              <div class="runtime-status-head">
+                <span>{{ t('settings.runtime.title') }}</span>
+                <strong>{{ settingsForm.demo_mode ? t('settings.runtime.demo') : t('settings.runtime.live') }}</strong>
+              </div>
+              <div class="runtime-status-grid">
+                <span>{{ t('settings.runtime.engine') }} · {{ settingsForm.planner_engine }}</span>
+                <span>{{ t('settings.runtime.model') }} · {{ settingsForm.openai_model || t('settings.runtime.notSet') }}</span>
+                <span>{{ t('settings.runtime.llm') }} · {{ configuredLabel(settingsForm.llm_configured) }}</span>
+                <span>{{ t('settings.runtime.map') }} · {{ configuredLabel(settingsForm.amap_web_configured) }}</span>
+                <span>{{ t('settings.runtime.community') }} · {{ configuredLabel(settingsForm.xhs_configured) }}</span>
+              </div>
+              <p>{{ t('settings.runtime.secretNotice') }}</p>
+            </div>
           </a-form>
         </section>
       </a-spin>
@@ -184,14 +128,17 @@ const settingsLoading = ref(false)
 const settingsSaving = ref(false)
 const settingsForm = reactive<RuntimeSettings>({
   api_base_url: '',
-  vite_amap_web_key: '',
   vite_amap_web_js_key: '',
-  google_maps_api_key: '',
-  google_maps_proxy: '',
-  xhs_cookie: '',
-  openai_api_key: '',
   openai_base_url: '',
   openai_model: '',
+  demo_mode: false,
+  planner_engine: 'legacy',
+  llm_configured: false,
+  amap_web_configured: false,
+  amap_web_js_configured: false,
+  google_maps_configured: false,
+  xhs_configured: false,
+  runtime_secret_updates_enabled: false,
 })
 
 const emit = defineEmits<{
@@ -209,15 +156,22 @@ const handleCtaClick = () => {
 
 const applyRuntimeSettings = (settings: RuntimeSettings) => {
   settingsForm.api_base_url = settings.api_base_url || ''
-  settingsForm.vite_amap_web_key = settings.vite_amap_web_key || ''
   settingsForm.vite_amap_web_js_key = settings.vite_amap_web_js_key || ''
-  settingsForm.google_maps_api_key = settings.google_maps_api_key || ''
-  settingsForm.google_maps_proxy = settings.google_maps_proxy || ''
-  settingsForm.xhs_cookie = settings.xhs_cookie || ''
-  settingsForm.openai_api_key = settings.openai_api_key || ''
   settingsForm.openai_base_url = settings.openai_base_url || ''
   settingsForm.openai_model = settings.openai_model || ''
+  settingsForm.demo_mode = settings.demo_mode
+  settingsForm.planner_engine = settings.planner_engine
+  settingsForm.llm_configured = settings.llm_configured
+  settingsForm.amap_web_configured = settings.amap_web_configured
+  settingsForm.amap_web_js_configured = settings.amap_web_js_configured
+  settingsForm.google_maps_configured = settings.google_maps_configured
+  settingsForm.xhs_configured = settings.xhs_configured
+  settingsForm.runtime_secret_updates_enabled = settings.runtime_secret_updates_enabled
 }
+
+const configuredLabel = (configured: boolean) => (
+  configured ? t('settings.runtime.configured') : t('settings.runtime.notConfigured')
+)
 
 const openSettingsDialog = async () => {
   settingsVisible.value = true
@@ -236,15 +190,7 @@ const saveSettingsNow = async () => {
   settingsSaving.value = true
   try {
     const payload: RuntimeSettings = {
-      api_base_url: settingsForm.api_base_url,
-      vite_amap_web_key: settingsForm.vite_amap_web_key,
-      vite_amap_web_js_key: settingsForm.vite_amap_web_js_key,
-      google_maps_api_key: settingsForm.google_maps_api_key,
-      google_maps_proxy: settingsForm.google_maps_proxy,
-      xhs_cookie: settingsForm.xhs_cookie,
-      openai_api_key: settingsForm.openai_api_key,
-      openai_base_url: settingsForm.openai_base_url,
-      openai_model: settingsForm.openai_model,
+      ...settingsForm,
     }
     const saved = await saveRuntimeSettings(payload)
     applyRuntimeSettings(saved)
@@ -541,5 +487,51 @@ const saveSettingsNow = async () => {
 
 .runtime-settings-form :deep(.ant-form-item) {
   margin-bottom: 12px;
+}
+
+.runtime-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 18px;
+}
+
+.runtime-status-panel {
+  margin-top: 10px;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(215, 110, 66, 0.28);
+  background: rgba(215, 110, 66, 0.08);
+}
+
+.runtime-status-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.runtime-status-head strong {
+  color: #a14625;
+}
+
+.runtime-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  color: #374151;
+  font-size: 13px;
+}
+
+.runtime-status-panel p {
+  margin: 14px 0 0;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .runtime-settings-grid,
+  .runtime-status-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

@@ -146,6 +146,40 @@
               </a-form-item>
             </div>
 
+            <div class="grid grid4 constraint-grid">
+              <a-form-item name="budget_total">
+                <template #label><span class="field-label">{{ t('home.budgetLabel') }}</span></template>
+                <a-input-number v-model:value="formData.budget_total" :min="100" :max="1000000" :step="100" size="large" class="field-input" style="width: 100%" />
+              </a-form-item>
+              <a-form-item name="travelers">
+                <template #label><span class="field-label">{{ t('home.travelersLabel') }}</span></template>
+                <a-input-number v-model:value="formData.travelers" :min="1" :max="20" size="large" class="field-input" style="width: 100%" />
+              </a-form-item>
+              <a-form-item name="pace">
+                <template #label><span class="field-label">{{ t('home.paceLabel') }}</span></template>
+                <a-select v-model:value="formData.pace" size="large" class="field-select">
+                  <a-select-option value="relaxed">{{ t('home.paces.relaxed') }}</a-select-option>
+                  <a-select-option value="balanced">{{ t('home.paces.balanced') }}</a-select-option>
+                  <a-select-option value="intensive">{{ t('home.paces.intensive') }}</a-select-option>
+                </a-select>
+              </a-form-item>
+              <a-form-item name="max_daily_walking_minutes">
+                <template #label><span class="field-label">{{ t('home.walkingLimitLabel') }}</span></template>
+                <a-input-number v-model:value="formData.max_daily_walking_minutes" :min="0" :max="1440" :step="15" size="large" class="field-input" style="width: 100%" />
+              </a-form-item>
+            </div>
+
+            <div class="grid grid2 daily-time-grid">
+              <a-form-item name="daily_start_time">
+                <template #label><span class="field-label">{{ t('home.dailyStartLabel') }}</span></template>
+                <a-time-picker v-model:value="formData.daily_start_time" format="HH:mm" :minute-step="15" size="large" class="field-input" style="width: 100%" />
+              </a-form-item>
+              <a-form-item name="daily_end_time">
+                <template #label><span class="field-label">{{ t('home.dailyEndLabel') }}</span></template>
+                <a-time-picker v-model:value="formData.daily_end_time" format="HH:mm" :minute-step="15" size="large" class="field-input" style="width: 100%" />
+              </a-form-item>
+            </div>
+
             <a-form-item name="preferences">
               <template #label>
                 <span class="field-label">{{ t('home.interestsLabel') }}</span>
@@ -195,6 +229,18 @@
           </a-form-item>
         </a-form>
 
+        <div v-if="failedTask && !loading" class="failure-recovery" role="alert">
+          <div>
+            <span class="failure-eyebrow">{{ t('home.failure.eyebrow') }}</span>
+            <h3>{{ t('home.failure.title') }}</h3>
+            <p>{{ failedTask.message }}</p>
+            <code>{{ t('home.failure.diagnosticId') }}: {{ failedTask.traceId }}</code>
+          </div>
+          <button type="button" class="btn btn-danger btn-round retry-btn" @click="handleRetry">
+            {{ t('home.failure.retry') }}
+          </button>
+        </div>
+
         <!-- Node Loading Stepper -->
         <div v-show="loading" class="stepper-wrapper">
           <div class="stepper-header">
@@ -203,48 +249,45 @@
           </div>
           
           <div class="stepper-container">
-            <!-- Step 1: Searching Attractions -->
-            <div class="step-node" :class="{ active: loadingProgress >= 0 && loadingProgress <= 30, completed: loadingProgress > 30 }">
+            <!-- These thresholds mirror the real JourneyGraph node progress emitted by the worker. -->
+            <div class="step-node" :class="{ active: loadingProgress >= 0 && loadingProgress <= 20, completed: loadingProgress > 20 }">
               <div class="node-icon">
-                <i v-if="loadingProgress >= 0 && loadingProgress <= 30" class="spinner-small"></i>
+                <i v-if="loadingProgress >= 0 && loadingProgress <= 20" class="spinner-small"></i>
                 <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
               </div>
-              <p class="node-text">{{ loadingProgress > 30 ? t('home.loading.searchedAttractions') : t('home.loading.searchingAttractions') }}</p>
+              <p class="node-text">{{ t('home.loading.nodes.request') }}</p>
             </div>
-            <div class="step-divider" :class="{ completed: loadingProgress > 30 }"></div>
+            <div class="step-divider" :class="{ completed: loadingProgress > 20 }"></div>
 
-            <!-- Step 2: Weather -->
-            <div class="step-node" :class="{ active: loadingProgress > 30 && loadingProgress <= 50, completed: loadingProgress > 50 }">
+            <div class="step-node" :class="{ active: loadingProgress > 20 && loadingProgress <= 45, completed: loadingProgress > 45 }">
               <div class="node-icon">
-                <i v-if="loadingProgress > 30 && loadingProgress <= 50" class="spinner-small"></i>
+                <i v-if="loadingProgress > 20 && loadingProgress <= 45" class="spinner-small"></i>
                 <svg v-else width="20px" height="20px" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
                   <path d="M10.5 1.5V3.1M3.6 10H2M5.4512 4.95137L4.31982 3.82M15.5498 4.95137L16.6812 3.82M19 10H17.4M6.50007 10.0001C6.50007 7.79093 8.29093 6.00007 10.5001 6.00007C12.0061 6.00007 13.3177 6.83235 14.0001 8.06206M6 22C3.79086 22 2 20.2091 2 18C2 15.7909 3.79086 14 6 14C6.46419 14 6.90991 14.0791 7.32442 14.2245C8.04061 12.3396 9.86387 11 12 11C14.1361 11 15.9594 12.3396 16.6756 14.2245C17.0901 14.0791 17.5358 14 18 14C20.2091 14 22 15.7909 22 18C22 20.2091 20.2091 22 18 22C13.3597 22 9.87921 22 6 22Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
               </div>
-              <p class="node-text">{{ loadingProgress > 50 ? t('home.loading.queriedWeather') : t('home.loading.queryingWeather') }}</p>
+              <p class="node-text">{{ t('home.loading.nodes.research') }}</p>
             </div>
-            <div class="step-divider" :class="{ completed: loadingProgress > 50 }"></div>
+            <div class="step-divider" :class="{ completed: loadingProgress > 45 }"></div>
 
-            <!-- Step 3: Hotels -->
-            <div class="step-node" :class="{ active: loadingProgress > 50 && loadingProgress <= 70, completed: loadingProgress > 70 }">
+            <div class="step-node" :class="{ active: loadingProgress > 45 && loadingProgress <= 75, completed: loadingProgress > 75 }">
               <div class="node-icon">
-                <i v-if="loadingProgress > 50 && loadingProgress <= 70" class="spinner-small"></i>
+                <i v-if="loadingProgress > 45 && loadingProgress <= 75" class="spinner-small"></i>
                 <svg v-else fill="currentColor" width="25px" height="25px" viewBox="0 0 24 24" version="1.1" xml:space="preserve" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
                     <g id="Layer_Grid"/><g id="Layer_2">
                     <path d="M21,8c0-2.2-1.8-4-4-4H7C4.8,4,3,5.8,3,8v3.8c-0.6,0.5-1,1.3-1,2.2v2.7V17v2c0,0.6,0.4,1,1,1s1-0.4,1-1v-1h16v1   c0,0.6,0.4,1,1,1s1-0.4,1-1v-2v-0.3V14c0-0.9-0.4-1.7-1-2.2V8z M5,8c0-1.1,0.9-2,2-2h10c1.1,0,2,0.9,2,2v3h-1v-1c0-1.7-1.3-3-3-3   h-1c-0.8,0-1.5,0.3-2,0.8C11.5,7.3,10.8,7,10,7H9c-1.7,0-3,1.3-3,3v1H5V8z M16,10v1h-3v-1c0-0.6,0.4-1,1-1h1C15.6,9,16,9.4,16,10z    M11,10v1H8v-1c0-0.6,0.4-1,1-1h1C10.6,9,11,9.4,11,10z M20,16H4v-2c0-0.6,0.4-1,1-1h3h3h2h3h3c0.6,0,1,0.4,1,1V16z"/></g>
                 </svg>
               </div>
-              <p class="node-text">{{ loadingProgress > 70 ? t('home.loading.recommendedHotels') : t('home.loading.recommendingHotels') }}</p>
+              <p class="node-text">{{ t('home.loading.nodes.draft') }}</p>
             </div>
-            <div class="step-divider" :class="{ completed: loadingProgress > 70 }"></div>
+            <div class="step-divider" :class="{ completed: loadingProgress > 75 }"></div>
 
-            <!-- Step 4: Planning -->
-            <div class="step-node" :class="{ active: loadingProgress > 70 && loadingProgress < 100, completed: loadingProgress >= 100 }">
+            <div class="step-node" :class="{ active: loadingProgress > 75 && loadingProgress < 100, completed: loadingProgress >= 100 }">
               <div class="node-icon">
-                <i v-if="loadingProgress > 70 && loadingProgress < 100" class="spinner-small"></i>
+                <i v-if="loadingProgress > 75 && loadingProgress < 100" class="spinner-small"></i>
                 <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
               </div>
-              <p class="node-text">{{ loadingProgress >= 100 ? t('home.loading.done') : t('home.loading.generatingPlan') }}</p>
+              <p class="node-text">{{ t('home.loading.nodes.validate') }}</p>
             </div>
           </div>
           
@@ -252,6 +295,12 @@
             <h3>{{ loadingStatus }}</h3>
             <p v-if="loadingProgress < 100">{{ t('home.loading.workingTogether') }}</p>
             <p v-else>{{ t('home.loading.donePrepare') }}</p>
+            <ol v-if="loadingEvents.length" class="node-event-log">
+              <li v-for="(event, index) in loadingEvents" :key="`${event.stage}-${event.progress}-${index}`">
+                <span>{{ event.progress }}%</span>
+                <strong>{{ event.message }}</strong>
+              </li>
+            </ol>
           </div>
         </div>
       </div>
@@ -306,11 +355,12 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
-import { generateTripPlan, getTripHistory } from '@/services/api'
+import { generateTripPlan, getTripHistory, retryTripPlan, TripTaskFailure } from '@/services/api'
 import { getCurrentLocale } from '@/i18n'
 import NavBar from '@/components/NavBar.vue'
-import type { TripFormData, TripTaskEvent, TripHistoryItem, CityStay } from '@/types'
+import type { TripFormData, TripTaskEvent, TripHistoryItem, CityStay, TripPlanResponse } from '@/types'
 import type { Dayjs } from 'dayjs'
+import dayjs from 'dayjs'
 
 type LandingFormData = {
   origin: string
@@ -320,6 +370,19 @@ type LandingFormData = {
   accommodation: string
   preferences: string[]
   free_text_input: string
+  budget_total: number
+  travelers: number
+  pace: 'relaxed' | 'balanced' | 'intensive'
+  daily_start_time: Dayjs
+  daily_end_time: Dayjs
+  max_daily_walking_minutes: number
+}
+
+type FailedTask = {
+  taskId: string
+  traceId: string
+  code: string
+  message: string
 }
 
 const router = useRouter()
@@ -336,6 +399,8 @@ const fogEnabled = ref(true)
 const planCode = ref('')
 const historyLoading = ref(false)
 const historyPlans = ref<TripHistoryItem[]>([])
+const loadingEvents = ref<Array<{ stage: string; progress: number; message: string }>>([])
+const failedTask = ref<FailedTask | null>(null)
 
 const getStageStatusText = (stage: TripTaskEvent['stage']) => {
   if (stage === 'submitted' || stage === 'initializing') return t('home.loading.initializing')
@@ -343,6 +408,15 @@ const getStageStatusText = (stage: TripTaskEvent['stage']) => {
   if (stage === 'weather_search') return t('home.loading.queryingWeather')
   if (stage === 'hotel_search') return t('home.loading.recommendingHotels')
   if (stage === 'planning') return t('home.loading.generatingPlan')
+  if (stage === 'workflow_start') return t('home.loading.nodes.request')
+  if (stage === 'normalize_request') return t('home.loading.normalizing')
+  if (stage === 'prepare_research' || stage === 'research_web' || stage === 'collect') return t('home.loading.nodes.research')
+  if (stage === 'transport') return t('home.loading.transport')
+  if (stage === 'draft') return t('home.loading.drafting')
+  if (stage === 'enrich_plan') return t('home.loading.enriching')
+  if (stage === 'validate' || stage === 'revise') return t('home.loading.validating')
+  if (stage === 'human_review') return t('home.loading.awaitingApproval')
+  if (stage === 'persist') return t('home.loading.persisting')
   if (stage === 'graph_building') return t('home.loading.generatingPlan')
   if (stage === 'completed') return t('home.loading.done')
   return t('home.loading.initializing')
@@ -370,6 +444,12 @@ const formData = reactive<LandingFormData>({
   accommodation: '经济型酒店',
   preferences: [],
   free_text_input: '',
+  budget_total: 3000,
+  travelers: 1,
+  pace: 'balanced',
+  daily_start_time: dayjs().hour(9).minute(0).second(0),
+  daily_end_time: dayjs().hour(21).minute(0).second(0),
+  max_daily_walking_minutes: 180,
 })
 
 const totalDays = computed(() => formData.cities.reduce((sum, cs) => sum + (cs.days || 1), 0))
@@ -477,6 +557,91 @@ onUnmounted(() => {
   window.removeEventListener('scroll', onScroll)
 })
 
+const startTaskUi = () => {
+  if (panelRef.value) panelHeight.value = panelRef.value.offsetHeight
+  loading.value = true
+  loadingProgress.value = 5
+  loadingStatus.value = t('home.loading.initializing')
+  loadingEvents.value = []
+  failedTask.value = null
+}
+
+const taskCallbacks = () => ({
+  onTaskCreated: (task: { task_id: string; trip_id: string; trace_id: string; plan_id: string }) => {
+    planCode.value = task.plan_id || task.task_id
+    sessionStorage.setItem('tripTaskId', task.task_id)
+    sessionStorage.setItem('tripId', task.trip_id)
+    loadingProgress.value = 5
+    loadingStatus.value = t('home.loading.initializing')
+  },
+  onTaskEvent: (event: TripTaskEvent) => {
+    if (event.plan_id) planCode.value = event.plan_id
+    if (Number.isFinite(event.progress)) {
+      loadingProgress.value = Math.max(0, Math.min(100, event.progress))
+    }
+    const translated = getStageStatusText(event.stage)
+    loadingStatus.value = translated || event.message
+    const previous = loadingEvents.value[loadingEvents.value.length - 1]
+    if (!previous || previous.stage !== event.stage || previous.progress !== event.progress) {
+      loadingEvents.value = [
+        ...loadingEvents.value,
+        { stage: event.stage, progress: event.progress, message: translated || event.message },
+      ].slice(-6)
+    }
+  },
+})
+
+const applyGeneratedPlan = (response: TripPlanResponse) => {
+  if (!response.success || !response.data) {
+    throw new Error(response.message || t('home.messages.generateFailed'))
+  }
+  const generatedPlanId = response.plan_id || response.task_id || planCode.value
+  loadingProgress.value = 100
+  loadingStatus.value = t('home.loading.done')
+  sessionStorage.setItem('tripPlan', JSON.stringify(response.data))
+  if (response.graph_data) sessionStorage.setItem('graphData', JSON.stringify(response.graph_data))
+  if (generatedPlanId) sessionStorage.setItem('planId', generatedPlanId)
+  if (response.task_id) sessionStorage.setItem('tripTaskId', response.task_id)
+  if (response.trip_id) sessionStorage.setItem('tripId', response.trip_id)
+  if (response.review) sessionStorage.setItem('tripReview', JSON.stringify(response.review))
+  message.success(
+    response.review?.status === 'pending'
+      ? t('home.messages.awaitingApproval')
+      : t('home.messages.generateSuccess')
+  )
+  setTimeout(() => {
+    router.push({
+      path: '/result',
+      query: {
+        ...(generatedPlanId ? { plan_id: generatedPlanId } : {}),
+        ...(response.task_id ? { task_id: response.task_id } : {}),
+      },
+    })
+  }, 500)
+}
+
+const captureTaskFailure = (error: unknown) => {
+  if (error instanceof TripTaskFailure) {
+    failedTask.value = {
+      taskId: error.taskId,
+      traceId: error.traceId,
+      code: error.code,
+      message: error.message,
+    }
+  }
+  const userMessage = error instanceof Error ? error.message : t('home.messages.generateRetry')
+  message.error(userMessage)
+}
+
+const finishTaskUi = () => {
+  setTimeout(() => {
+    loading.value = false
+    loadingProgress.value = 0
+    loadingStatus.value = ''
+    panelHeight.value = 'auto'
+  }, 700)
+}
+
 const handleSubmit = async () => {
   if (!formData.origin.trim()) {
     message.error(t('home.originRequired'))
@@ -496,20 +661,21 @@ const handleSubmit = async () => {
     message.warning(t('home.messages.travelDaysTooLong'))
     return
   }
-
-  if (panelRef.value) {
-    panelHeight.value = panelRef.value.offsetHeight
+  if (!formData.daily_end_time.isAfter(formData.daily_start_time)) {
+    message.warning(t('home.messages.dailyTimeInvalid'))
+    return
   }
 
-  loading.value = true
-  loadingProgress.value = 5
-  loadingStatus.value = t('home.loading.initializing')
+  startTaskUi()
   planCode.value = ''
 
   try {
     sessionStorage.removeItem('tripPlan')
     sessionStorage.removeItem('graphData')
     sessionStorage.removeItem('planId')
+    sessionStorage.removeItem('tripTaskId')
+    sessionStorage.removeItem('tripId')
+    sessionStorage.removeItem('tripReview')
 
     const citiesPayload: CityStay[] = validCities.map(cs => ({ city: cs.city.trim(), days: cs.days || 1 }))
     const endDate = computedEndDate.value!
@@ -526,57 +692,38 @@ const handleSubmit = async () => {
       preferences: formData.preferences,
       free_text_input: formData.free_text_input,
       language: getCurrentLocale(),
+      budget_total: formData.budget_total,
+      currency: 'CNY',
+      travelers: formData.travelers,
+      pace: formData.pace,
+      daily_start_time: formData.daily_start_time.format('HH:mm:ss'),
+      daily_end_time: formData.daily_end_time.format('HH:mm:ss'),
+      max_daily_walking_minutes: formData.max_daily_walking_minutes,
     }
 
-    const response = await generateTripPlan(requestData, {
-      onTaskCreated: (task) => {
-        planCode.value = task.plan_id || task.task_id
-        loadingProgress.value = 5
-        loadingStatus.value = t('home.loading.initializing')
-      },
-      onTaskEvent: (event) => {
-        if (event.plan_id) planCode.value = event.plan_id
-        if (Number.isFinite(event.progress)) {
-          loadingProgress.value = Math.max(0, Math.min(100, event.progress))
-        }
-        loadingStatus.value = event.message || getStageStatusText(event.stage)
-      }
-    })
-
-    loadingProgress.value = 100
-    loadingStatus.value = t('home.loading.done')
-
-    if (response.success && response.data) {
-      const planId = response.plan_id || planCode.value
-      sessionStorage.setItem('tripPlan', JSON.stringify(response.data))
-      if (response.graph_data) sessionStorage.setItem('graphData', JSON.stringify(response.graph_data))
-      if (planId) sessionStorage.setItem('planId', planId)
-      message.success(t('home.messages.generateSuccess'))
-      setTimeout(() => {
-        if (planId) {
-          router.push({ path: '/result', query: { plan_id: planId } })
-        } else {
-          router.push('/result')
-        }
-      }, 500)
-    } else {
-      sessionStorage.removeItem('tripPlan')
-      sessionStorage.removeItem('graphData')
-      sessionStorage.removeItem('planId')
-      message.error(response.message || t('home.messages.generateFailed'))
-    }
-  } catch (error: any) {
+    applyGeneratedPlan(await generateTripPlan(requestData, taskCallbacks()))
+  } catch (error: unknown) {
     sessionStorage.removeItem('tripPlan')
     sessionStorage.removeItem('graphData')
     sessionStorage.removeItem('planId')
-    message.error(error.message || t('home.messages.generateRetry'))
+    captureTaskFailure(error)
   } finally {
-    setTimeout(() => {
-      loading.value = false
-      loadingProgress.value = 0
-      loadingStatus.value = ''
-      panelHeight.value = 'auto'
-    }, 1000)
+    finishTaskUi()
+  }
+}
+
+const handleRetry = async () => {
+  const task = failedTask.value
+  if (!task) return
+  startTaskUi()
+  planCode.value = task.taskId
+  try {
+    applyGeneratedPlan(await retryTripPlan(task.taskId, taskCallbacks()))
+  } catch (error: unknown) {
+    captureTaskFailure(error)
+    if (!failedTask.value) failedTask.value = task
+  } finally {
+    finishTaskUi()
   }
 }
 </script>
@@ -887,6 +1034,11 @@ const handleSubmit = async () => {
   grid-template-columns: 1fr 1fr;
 }
 
+.constraint-grid,
+.daily-time-grid {
+  margin-top: 12px;
+}
+
 .city-list {
   display: flex;
   flex-direction: column;
@@ -1126,6 +1278,45 @@ const handleSubmit = async () => {
   cursor: wait;
 }
 
+.failure-recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 8px 0 22px;
+  padding: 22px;
+  border: 1px solid rgba(255, 148, 120, 0.48);
+  border-radius: 16px;
+  background: rgba(96, 35, 28, 0.26);
+}
+
+.failure-eyebrow {
+  color: #ff9478;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.failure-recovery h3 {
+  margin: 5px 0 6px;
+  color: #fff;
+}
+
+.failure-recovery p {
+  margin: 0 0 8px;
+  color: rgba(236, 243, 250, 0.72);
+}
+
+.failure-recovery code {
+  color: #ffd6cc;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.retry-btn {
+  flex: 0 0 auto;
+}
+
 .loading-row {
   display: inline-flex;
   align-items: center;
@@ -1287,6 +1478,29 @@ const handleSubmit = async () => {
   color: rgba(236, 243, 250, 0.54);
 }
 
+.node-event-log {
+  width: min(620px, 100%);
+  margin: 18px auto 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+
+.node-event-log li {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(236, 243, 250, 0.08);
+  color: rgba(236, 243, 250, 0.68);
+  font-size: 12px;
+}
+
+.node-event-log span {
+  color: #d76e42;
+  font-variant-numeric: tabular-nums;
+}
+
 :deep(.ant-form-item-label > label) {
   color: transparent !important;
 }
@@ -1337,6 +1551,11 @@ const handleSubmit = async () => {
 }
 
 @media (max-width: 520px) {
+  .failure-recovery {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .landing-header .presentation-title {
     font-size: clamp(34px, 10vw, 52px);
   }

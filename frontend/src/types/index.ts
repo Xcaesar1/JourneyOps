@@ -199,6 +199,14 @@ export interface TripFormData {
   preferences: string[]
   free_text_input: string
   language?: string
+  budget_total?: number
+  currency?: string
+  travelers?: number
+  pace?: 'relaxed' | 'balanced' | 'intensive'
+  daily_start_time?: string
+  daily_end_time?: string
+  max_daily_walking_minutes?: number
+  accessibility_needs?: string[]
 }
 
 export interface TripPlanResponse {
@@ -241,6 +249,19 @@ export type TripTaskStage =
   | 'weather_search'
   | 'hotel_search'
   | 'planning'
+  | 'workflow_start'
+  | 'normalize_request'
+  | 'prepare_research'
+  | 'research_web'
+  | 'collect'
+  | 'transport'
+  | 'draft'
+  | 'enrich_plan'
+  | 'validate'
+  | 'revise'
+  | 'human_review'
+  | 'persist'
+  | 'reject_plan'
   | 'replanning'
   | 'review_resume'
   | 'awaiting_approval'
@@ -252,11 +273,13 @@ export type TripTaskStage =
 export interface TripTaskEvent {
   task_id: string
   plan_id: string
+  trip_id?: string
+  trace_id?: string
   status: TripTaskStatus
   stage: TripTaskStage
   progress: number
   message: string
-  error?: string
+  error?: string | { code: string; message: string } | null
   result?: TripPlanResponse
   review?: TripReviewRecord
 }
@@ -337,6 +360,7 @@ export interface TripReviewRecord {
 export interface TripTaskRecord {
   task_id: string
   trip_id: string
+  trace_id: string
   status: TripTaskStatus
   stage: string
   progress: number
@@ -370,26 +394,32 @@ export interface TripVersionRecord {
 }
 
 export interface BackendRuntimeSettings {
-  vite_amap_web_key: string
   vite_amap_web_js_key: string
-  google_maps_api_key: string
-  google_maps_proxy: string
-  xhs_cookie: string
-  openai_api_key: string
   openai_base_url: string
   openai_model: string
+  demo_mode: boolean
+  planner_engine: string
+  llm_configured: boolean
+  amap_web_configured: boolean
+  amap_web_js_configured: boolean
+  google_maps_configured: boolean
+  xhs_configured: boolean
+  runtime_secret_updates_enabled: boolean
 }
 
 export interface RuntimeSettings {
   api_base_url: string
-  vite_amap_web_key: string
   vite_amap_web_js_key: string
-  google_maps_api_key: string
-  google_maps_proxy: string
-  xhs_cookie: string
-  openai_api_key: string
   openai_base_url: string
   openai_model: string
+  demo_mode: boolean
+  planner_engine: string
+  llm_configured: boolean
+  amap_web_configured: boolean
+  amap_web_js_configured: boolean
+  google_maps_configured: boolean
+  xhs_configured: boolean
+  runtime_secret_updates_enabled: boolean
 }
 
 // ============ 知识图谱类型 ============

@@ -31,8 +31,8 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="基于HelloAgents框架的智能旅行规划助手API",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if settings.api_docs_enabled else None,
+    redoc_url="/redoc" if settings.api_docs_enabled else None,
 )
 
 register_api_exception_handlers(app)

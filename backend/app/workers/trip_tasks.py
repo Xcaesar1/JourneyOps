@@ -767,13 +767,46 @@ async def _run_journey_graph_planner(
     """Run or resume the typed graph and adapt its result for existing clients."""
     from langgraph.types import Command
 
-    from ..agents.journey_graph import build_journey_graph, build_structured_plan_generator
+    from ..agents.journey_graph import build_configured_plan_generator, build_journey_graph
     from ..agents.journey_graph.checkpoint import open_postgres_checkpointer
-    from ..services.research import build_configured_web_research_provider
-    from ..services.routing import build_configured_route_estimate_provider
+    from ..services.research import NoopWebResearchProvider, build_configured_web_research_provider
+    from ..services.routing import (
+        NoopRouteEstimateProvider,
+        build_configured_route_estimate_provider,
+    )
 
     request = _to_v2_request(payload)
-    await progress_callback("planning", "JourneyGraph structured planning started.", 50)
+    settings = get_settings()
+    draft_generator = build_configured_plan_generator()
+    research_provider = (
+        NoopWebResearchProvider()
+        if settings.demo_mode
+        else build_configured_web_research_provider()
+    )
+    route_provider = (
+        NoopRouteEstimateProvider()
+        if settings.demo_mode
+        else build_configured_route_estimate_provider()
+    )
+    node_progress = {
+        "normalize_request": ("normalize_request", "Normalizing the trip request.", 12),
+        "prepare_research_queries": ("prepare_research", "Preparing bounded research queries.", 20),
+        "research_web": ("research_web", "Collecting source evidence.", 30),
+        "collect": ("collect", "Ranking and collecting evidence.", 38),
+        "plan_intercity_transport": ("transport", "Estimating intercity transport.", 46),
+        "draft": ("draft", "Generating the structured itinerary draft.", 60),
+        "enrich_plan": ("enrich_plan", "Building timelines and recalculating budget.", 72),
+        "deterministic_validate": ("validate", "Running deterministic validators.", 80),
+        "revise_plan": ("revise", "Repairing validation conflicts.", 82),
+        "human_review": ("human_review", "Preparing the human review checkpoint.", 88),
+        "persist": ("persist", "Persisting the approved version.", 92),
+        "reject_plan": ("reject_plan", "Recording the review decision.", 92),
+    }
+    await progress_callback("workflow_start", "JourneyGraph workflow started.", 8)
+
+    def observe_node(node_name: str) -> None:
+        stage, message, progress = node_progress[node_name]
+        asyncio.run(progress_callback(stage, message, progress))
 
     def invoke_graph() -> tuple[dict[str, Any], bool, bool]:
         config = {"configurable": {"thread_id": task_id}}
@@ -785,11 +818,12 @@ async def _run_journey_graph_planner(
         }
         with open_postgres_checkpointer() as checkpointer:
             graph = build_journey_graph(
-                draft_generator=build_structured_plan_generator(),
-                research_provider=build_configured_web_research_provider(),
-                route_provider=build_configured_route_estimate_provider(),
+                draft_generator=draft_generator,
+                research_provider=research_provider,
+                route_provider=route_provider,
                 checkpointer=checkpointer,
                 require_human_review=True,
+                node_observer=observe_node,
             )
             snapshot = graph.get_state(config)
             if snapshot.values.get("final_plan") is not None and not snapshot.next:
@@ -810,7 +844,7 @@ async def _run_journey_graph_planner(
                 state = snapshot.values
             else:
                 state = graph.invoke(initial_state, config)
-                model_invoked = True
+                model_invoked = bool(getattr(draft_generator, "uses_provider", True))
             waiting = bool(graph.get_state(config).next)
         return dict(state), waiting, model_invoked
 
@@ -836,7 +870,10 @@ async def _run_journey_graph_planner(
         review_proposed_version=1,
         review_reason=(review_context.reason if review_context else "Initial plan review"),
         validation_report=plan.validation_report.model_dump(mode="json"),
-        model_id=get_settings().openai_model,
+        model_id=(
+            state.get("metrics", {}).get("model_generation", {}).get("model_id")
+            or getattr(draft_generator, "model_id", settings.openai_model)
+        ),
         prompt_version=PROMPT_VERSION,
         workflow_version=WORKFLOW_VERSION,
         tool_versions=TOOL_VERSIONS,

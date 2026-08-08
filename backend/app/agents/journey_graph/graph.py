@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -27,6 +27,19 @@ from .nodes import (
 )
 from .state import TripState
 
+NodeObserver = Callable[[str], None]
+
+
+def _observed_node(name: str, node: Callable[..., Any], observer: NodeObserver | None):
+    if observer is None:
+        return node
+
+    def observed(state: TripState):
+        observer(name)
+        return node(state)
+
+    return observed
+
 
 def build_journey_graph(
     *,
@@ -36,25 +49,53 @@ def build_journey_graph(
     checkpointer: Any | None = None,
     interrupt_before: Sequence[str] | None = None,
     require_human_review: bool = False,
+    node_observer: NodeObserver | None = None,
 ):
     configured_research_provider = research_provider or NoopWebResearchProvider()
     configured_route_provider = route_provider or NoopRouteEstimateProvider()
     builder = StateGraph(TripState)
-    builder.add_node("normalize_request", normalize_request)
-    builder.add_node("prepare_research_queries", prepare_research_queries)
-    builder.add_node("research_web", make_research_web_node(configured_research_provider))
-    builder.add_node("collect", collect)
+    builder.add_node(
+        "normalize_request",
+        _observed_node("normalize_request", normalize_request, node_observer),
+    )
+    builder.add_node(
+        "prepare_research_queries",
+        _observed_node("prepare_research_queries", prepare_research_queries, node_observer),
+    )
+    builder.add_node(
+        "research_web",
+        _observed_node(
+            "research_web",
+            make_research_web_node(configured_research_provider),
+            node_observer,
+        ),
+    )
+    builder.add_node("collect", _observed_node("collect", collect, node_observer))
     builder.add_node(
         "plan_intercity_transport",
-        make_plan_intercity_transport_node(configured_route_provider),
+        _observed_node(
+            "plan_intercity_transport",
+            make_plan_intercity_transport_node(configured_route_provider),
+            node_observer,
+        ),
     )
-    builder.add_node("draft", make_draft_node(draft_generator))
-    builder.add_node("enrich_plan", enrich_plan)
-    builder.add_node("deterministic_validate", validate_plan)
-    builder.add_node("revise_plan", revise_plan)
-    builder.add_node("human_review", make_human_review_node(require_human_review))
-    builder.add_node("reject_plan", reject_plan)
-    builder.add_node("persist", persist)
+    builder.add_node("draft", _observed_node("draft", make_draft_node(draft_generator), node_observer))
+    builder.add_node("enrich_plan", _observed_node("enrich_plan", enrich_plan, node_observer))
+    builder.add_node(
+        "deterministic_validate",
+        _observed_node("deterministic_validate", validate_plan, node_observer),
+    )
+    builder.add_node("revise_plan", _observed_node("revise_plan", revise_plan, node_observer))
+    builder.add_node(
+        "human_review",
+        _observed_node(
+            "human_review",
+            make_human_review_node(require_human_review),
+            node_observer,
+        ),
+    )
+    builder.add_node("reject_plan", _observed_node("reject_plan", reject_plan, node_observer))
+    builder.add_node("persist", _observed_node("persist", persist, node_observer))
     builder.add_edge(START, "normalize_request")
     builder.add_edge("normalize_request", "prepare_research_queries")
     builder.add_edge("prepare_research_queries", "research_web")

@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     legacy_json_repair: bool = True
     planner_engine: Literal["legacy", "journey_graph"] = "legacy"
     planner_compare_engines: bool = False
+    demo_mode: bool = False
+    runtime_secret_updates_enabled: bool = False
+    api_docs_enabled: bool = True
 
     # Phase 7 observability and budget accounting. Prices are operator-supplied.
     llm_input_cost_per_million_usd: float = Field(default=0, ge=0)
@@ -167,21 +170,24 @@ def get_settings() -> Settings:
     return settings
 
 
-def get_runtime_settings() -> dict[str, str]:
-    """获取当前运行时配置（供前端设置页读取）。"""
+def get_runtime_settings() -> dict[str, str | bool]:
+    """Return browser-safe runtime status without disclosing backend secrets."""
     return {
-        "vite_amap_web_key": settings.vite_amap_web_key or "",
         "vite_amap_web_js_key": settings.vite_amap_web_js_key or "",
-        "google_maps_api_key": settings.google_maps_api_key or "",
-        "google_maps_proxy": settings.google_maps_proxy or "",
-        "xhs_cookie": settings.xhs_cookie or "",
-        "openai_api_key": settings.openai_api_key or "",
         "openai_base_url": settings.openai_base_url or "",
         "openai_model": settings.openai_model or "",
+        "demo_mode": settings.demo_mode,
+        "planner_engine": settings.planner_engine,
+        "llm_configured": bool(settings.openai_api_key),
+        "amap_web_configured": bool(settings.vite_amap_web_key),
+        "amap_web_js_configured": bool(settings.vite_amap_web_js_key),
+        "google_maps_configured": bool(settings.google_maps_api_key),
+        "xhs_configured": bool(settings.xhs_cookie and settings.xhs_enabled),
+        "runtime_secret_updates_enabled": settings.runtime_secret_updates_enabled,
     }
 
 
-def update_runtime_settings(updates: dict[str, Any]) -> dict[str, str]:
+def update_runtime_settings(updates: dict[str, Any]) -> dict[str, str | bool]:
     """更新并持久化运行时配置。"""
     global _runtime_overrides
 
@@ -208,7 +214,7 @@ def validate_config():
         warnings.append("VITE_AMAP_WEB_KEY未配置，景点地理编码等功能将不可用")
 
     llm_api_key = settings.openai_api_key or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not llm_api_key:
+    if not llm_api_key and not settings.demo_mode:
         warnings.append("LLM API Key未配置，AI 生成功能将不可用")
 
     if warnings:
@@ -230,6 +236,7 @@ def print_config():
     print(f"Google Maps API Key: {'已配置' if settings.google_maps_api_key else '未配置'}")
     print(f"Google Maps Proxy: {settings.google_maps_proxy or '未配置'}")
     print(f"小红书Cookie: {'已配置' if settings.xhs_cookie else '未配置'}")
+    print(f"Demo 模式: {'已启用' if settings.demo_mode else '未启用'}")
 
     # 检查LLM配置
     llm_api_key = settings.openai_api_key or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")

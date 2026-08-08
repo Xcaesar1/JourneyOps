@@ -56,6 +56,20 @@
       "openaiModel": "例如：gpt-4o-mini",
       "xhsCookie": "粘贴完整 Cookie 字符串"
     },
+    "runtime": {
+      "title": "服务运行状态",
+      "demo": "演示模式",
+      "live": "真实模式",
+      "engine": "规划引擎",
+      "model": "模型",
+      "notSet": "未设置",
+      "llm": "大模型",
+      "map": "地图服务",
+      "community": "社区数据",
+      "configured": "已配置",
+      "notConfigured": "未配置",
+      "secretNotice": "服务端密钥不会发送到浏览器。此处仅显示配置状态；浏览器地图 Key 请在高德控制台限制可用域名。"
+    },
     "messages": {
       "loadFailed": "读取设置失败",
       "saveFailed": "保存设置失败",
@@ -108,6 +122,17 @@
       "luxury": "奢华度假",
       "homestay": "特色民宿"
     },
+    "budgetLabel": "总预算（CNY）",
+    "travelersLabel": "出行人数",
+    "paceLabel": "行程节奏",
+    "walkingLimitLabel": "每日步行上限（分钟）",
+    "dailyStartLabel": "每日开始时间",
+    "dailyEndLabel": "每日结束时间",
+    "paces": {
+      "relaxed": "轻松",
+      "balanced": "均衡",
+      "intensive": "紧凑"
+    },
     "interestsLabel": "旅行兴趣",
     "interests": {
       "history": "历史文化",
@@ -129,8 +154,20 @@
       "updatedAt": "更新于",
       "loadFailed": "读取历史计划失败"
     },
+    "failure": {
+      "eyebrow": "任务未完成",
+      "title": "保留原请求并安全重试",
+      "diagnosticId": "诊断编号",
+      "retry": "重试此任务"
+    },
     "loading": {
       "initializing": "正在初始化...",
+      "normalizing": "正在规范化旅行约束...",
+      "transport": "正在估算全程交通...",
+      "drafting": "正在生成结构化行程草案...",
+      "enriching": "正在补充路线与来源...",
+      "validating": "正在执行确定性校验...",
+      "persisting": "正在保存待确认草案...",
       "searchingAttractions": "正在搜索景点...",
       "searchedAttractions": "景点搜索完毕",
       "queryingWeather": "正在查询天气...",
@@ -143,12 +180,19 @@
       "preparing": "请稍等，正在为您准备...",
       "workingTogether": "AI 正在齐心协力为您定制旅程...",
       "donePrepare": "完成！准备出发...",
-      "done": "完成！"
+      "done": "完成！",
+      "nodes": {
+        "request": "解析需求",
+        "research": "检索与交通",
+        "draft": "生成草案",
+        "validate": "校验并待确认"
+      }
     },
     "messages": {
       "travelDaysTooLong": "旅行天数不能超过 30 天",
       "endDateEarlier": "结束日期不能早于开始日期",
       "selectDate": "请选择日期",
+      "dailyTimeInvalid": "每日结束时间必须晚于开始时间",
       "generateSuccess": "旅行计划生成成功!",
       "awaitingApproval": "行程草案已生成，请确认后保存",
       "generateFailed": "生成失败",

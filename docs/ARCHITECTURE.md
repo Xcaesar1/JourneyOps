@@ -1,6 +1,47 @@
 # JourneyOps Architecture
 
-## Phase 6 Runtime
+## Before And After
+
+### Before: Upstream Runtime
+
+```mermaid
+flowchart LR
+    Browser["Vue browser"] --> API["Single FastAPI process"]
+    API --> Memory["In-process task dictionary and queue"]
+    Memory --> Legacy["Monolithic legacy Planner"]
+    Legacy --> Providers["LLM, map and community providers"]
+    Legacy --> JSON["JSON task files"]
+    JSON --> Browser
+```
+
+The upstream path coupled HTTP availability, task execution and mutable JSON state to one process. A restart
+could interrupt work, external failures crossed component boundaries as untyped text, and generated values were
+not independently validated before presentation.
+
+### After: JourneyOps Runtime
+
+```mermaid
+flowchart LR
+    Browser["Vue client"] --> API["Stateless FastAPI API"]
+    API --> DB[("PostgreSQL canonical state")]
+    API --> Redis[("Redis broker and events")]
+    Redis --> Worker["Celery Worker"]
+    Worker --> Selector{"Engine selector"}
+    Selector --> Legacy["Preserved legacy Planner"]
+    Selector --> Graph["Typed resumable JourneyGraph"]
+    Graph --> Providers["Optional provider adapters"]
+    Graph --> Validate["Deterministic validation"]
+    Validate --> Review["Durable human review"]
+    Review --> Versions["Immutable versions and scoped diff"]
+    Versions --> DB
+    DB --> API
+```
+
+The migration is incremental: the legacy Planner remains available behind a feature flag, while JourneyGraph
+adds typed state, checkpoints, evidence, program-owned validation and durable review without rewriting the
+legacy implementation.
+
+## Phase 8 Runtime
 
 ```mermaid
 flowchart LR

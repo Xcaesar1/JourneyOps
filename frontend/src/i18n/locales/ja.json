@@ -56,6 +56,20 @@
       "openaiModel": "例: gpt-4o-mini",
       "xhsCookie": "Cookie 文字列を貼り付け"
     },
+    "runtime": {
+      "title": "サービス稼働状況",
+      "demo": "デモモード",
+      "live": "本番モード",
+      "engine": "プランナー",
+      "model": "モデル",
+      "notSet": "未設定",
+      "llm": "LLM",
+      "map": "地図サービス",
+      "community": "コミュニティデータ",
+      "configured": "設定済み",
+      "notConfigured": "未設定",
+      "secretNotice": "サーバー側のシークレットはブラウザへ送信しません。ここには設定状態のみを表示します。ブラウザ用地図 Key は AMap コンソールで利用ドメインを制限してください。"
+    },
     "messages": {
       "loadFailed": "設定の読み込みに失敗しました",
       "saveFailed": "設定の保存に失敗しました",
@@ -108,6 +122,17 @@
       "luxury": "ラグジュアリー",
       "homestay": "民宿"
     },
+    "budgetLabel": "総予算（CNY）",
+    "travelersLabel": "旅行人数",
+    "paceLabel": "旅程ペース",
+    "walkingLimitLabel": "1日の徒歩上限（分）",
+    "dailyStartLabel": "1日の開始時刻",
+    "dailyEndLabel": "1日の終了時刻",
+    "paces": {
+      "relaxed": "ゆったり",
+      "balanced": "標準",
+      "intensive": "充実"
+    },
     "interestsLabel": "旅行の興味",
     "interests": {
       "history": "歴史・文化",
@@ -129,8 +154,20 @@
       "updatedAt": "更新",
       "loadFailed": "履歴プランの読み込みに失敗しました"
     },
+    "failure": {
+      "eyebrow": "タスク未完了",
+      "title": "元のリクエストを保持して再試行",
+      "diagnosticId": "診断 ID",
+      "retry": "このタスクを再試行"
+    },
     "loading": {
       "initializing": "初期化中...",
+      "normalizing": "旅行条件を正規化しています...",
+      "transport": "全行程の移動を見積もっています...",
+      "drafting": "構造化された旅程案を生成しています...",
+      "enriching": "ルートと情報源を補完しています...",
+      "validating": "決定的ルールで検証しています...",
+      "persisting": "確認用の下書きを保存しています...",
       "searchingAttractions": "観光地を検索中...",
       "searchedAttractions": "観光地の検索完了",
       "queryingWeather": "天気を確認中...",
@@ -143,12 +180,19 @@
       "preparing": "少々お待ちください。準備中です...",
       "workingTogether": "AIエージェントが協力して旅程を作成しています...",
       "donePrepare": "完了！出発の準備をしてください...",
-      "done": "完了！"
+      "done": "完了！",
+      "nodes": {
+        "request": "要望を理解",
+        "research": "検索と移動",
+        "draft": "下書きを作成",
+        "validate": "検証して確認"
+      }
     },
     "messages": {
       "travelDaysTooLong": "旅行日数は 30 日以内にしてください",
       "endDateEarlier": "終了日は開始日より後にしてください",
       "selectDate": "日付を選択してください",
+      "dailyTimeInvalid": "1日の終了時刻は開始時刻より後にしてください",
       "generateSuccess": "旅行プランの生成に成功しました!",
       "awaitingApproval": "旅程の下書きが完成しました。承認後に保存されます",
       "generateFailed": "生成に失敗しました",

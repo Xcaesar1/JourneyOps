@@ -56,6 +56,20 @@
       "openaiModel": "e.g. gpt-4o-mini",
       "xhsCookie": "Paste full cookie string"
     },
+    "runtime": {
+      "title": "Service status",
+      "demo": "Demo mode",
+      "live": "Live mode",
+      "engine": "Planner",
+      "model": "Model",
+      "notSet": "Not set",
+      "llm": "LLM",
+      "map": "Map service",
+      "community": "Community data",
+      "configured": "Configured",
+      "notConfigured": "Not configured",
+      "secretNotice": "Server-side secrets are never sent to the browser. Only configuration status is shown here; restrict the browser map key to approved domains in the AMap console."
+    },
     "messages": {
       "loadFailed": "Failed to load settings",
       "saveFailed": "Failed to save settings",
@@ -108,6 +122,17 @@
       "luxury": "Luxury Resort",
       "homestay": "Homestay"
     },
+    "budgetLabel": "Total budget (CNY)",
+    "travelersLabel": "Travelers",
+    "paceLabel": "Trip pace",
+    "walkingLimitLabel": "Daily walking limit (min)",
+    "dailyStartLabel": "Day starts at",
+    "dailyEndLabel": "Day ends at",
+    "paces": {
+      "relaxed": "Relaxed",
+      "balanced": "Balanced",
+      "intensive": "Intensive"
+    },
     "interestsLabel": "Travel Interests",
     "interests": {
       "history": "History & Culture",
@@ -129,8 +154,20 @@
       "updatedAt": "Updated",
       "loadFailed": "Failed to load plan history"
     },
+    "failure": {
+      "eyebrow": "Task not completed",
+      "title": "Retry safely with the original request",
+      "diagnosticId": "Diagnostic ID",
+      "retry": "Retry this task"
+    },
     "loading": {
       "initializing": "Initializing...",
+      "normalizing": "Normalizing trip constraints...",
+      "transport": "Estimating end-to-end transport...",
+      "drafting": "Generating a structured itinerary draft...",
+      "enriching": "Enriching routes and sources...",
+      "validating": "Running deterministic validation...",
+      "persisting": "Saving the reviewable draft...",
       "searchingAttractions": "Searching attractions...",
       "searchedAttractions": "Attractions found",
       "queryingWeather": "Checking weather...",
@@ -143,12 +180,19 @@
       "preparing": "Please wait, we are preparing for you...",
       "workingTogether": "Our AI agents are working together to craft your journey...",
       "donePrepare": "Done! Prepare for departure...",
-      "done": "Done!"
+      "done": "Done!",
+      "nodes": {
+        "request": "Understand request",
+        "research": "Research and route",
+        "draft": "Build draft",
+        "validate": "Validate and review"
+      }
     },
     "messages": {
       "travelDaysTooLong": "Trip duration cannot exceed 30 days",
       "endDateEarlier": "End date cannot be earlier than start date",
       "selectDate": "Please select dates",
+      "dailyTimeInvalid": "The daily end time must be later than the start time",
       "generateSuccess": "Trip plan generated successfully!",
       "awaitingApproval": "Your draft is ready. Approve it to save a version",
       "generateFailed": "Generation failed",

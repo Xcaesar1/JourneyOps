@@ -18,17 +18,19 @@ const ENV_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const ENV_AMAP_WEB_JS_KEY = import.meta.env.VITE_AMAP_WEB_JS_KEY ?? ''
 const RUNTIME_API_BASE_STORAGE_KEY = 'tripstar.runtime.api_base_url'
 const RUNTIME_AMAP_WEB_JS_KEY_STORAGE_KEY = 'tripstar.runtime.amap_web_js_key'
-const RUNTIME_GOOGLE_MAPS_API_KEY_STORAGE_KEY = 'tripstar.runtime.google_maps_api_key'
 const API_ACCESS_CODE_STORAGE_KEY = 'journeyops.api_access_code'
 const DEFAULT_RUNTIME_BACKEND_SETTINGS: BackendRuntimeSettings = {
-  vite_amap_web_key: '',
   vite_amap_web_js_key: '',
-  google_maps_api_key: '',
-  google_maps_proxy: '',
-  xhs_cookie: '',
-  openai_api_key: '',
   openai_base_url: '',
   openai_model: '',
+  demo_mode: false,
+  planner_engine: 'legacy',
+  llm_configured: false,
+  amap_web_configured: false,
+  amap_web_js_configured: false,
+  google_maps_configured: false,
+  xhs_configured: false,
+  runtime_secret_updates_enabled: false,
 }
 
 export const RUNTIME_SETTINGS_UPDATED_EVENT = 'tripstar:runtime-settings-updated'
@@ -57,8 +59,10 @@ const DEFAULT_AMAP_WEB_JS_KEY = normalizeText(ENV_AMAP_WEB_JS_KEY)
 
 interface SubmitTripPlanResponse {
   task_id: string
+  trip_id: string
+  trace_id: string
   plan_id: string
-  status: 'processing'
+  status: 'queued' | 'processing'
   ws_url: string
   message: string
 }
@@ -110,42 +114,28 @@ export const setRuntimeMapJsKey = (value: string): string => {
   return normalized
 }
 
-export const getRuntimeGoogleMapsApiKey = (): string => {
-  if (typeof window === 'undefined') return ''
-  return normalizeText(window.localStorage.getItem(RUNTIME_GOOGLE_MAPS_API_KEY_STORAGE_KEY))
-}
-
-export const setRuntimeGoogleMapsApiKey = (value: string): string => {
-  const normalized = normalizeText(value)
-  if (typeof window !== 'undefined') {
-    window.localStorage.setItem(RUNTIME_GOOGLE_MAPS_API_KEY_STORAGE_KEY, normalized)
-  }
-  return normalized
-}
-
 const getWsBaseUrl = (): string => getRuntimeApiBaseUrl().replace(/^http/i, 'ws').replace(/\/+$/, '')
 
 const normalizeBackendRuntimeSettings = (
   data?: Partial<BackendRuntimeSettings>
 ): BackendRuntimeSettings => ({
-  vite_amap_web_key: normalizeText(data?.vite_amap_web_key ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.vite_amap_web_key),
   vite_amap_web_js_key: normalizeText(
     data?.vite_amap_web_js_key ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.vite_amap_web_js_key
   ),
-  google_maps_api_key: normalizeText(
-    data?.google_maps_api_key ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.google_maps_api_key
-  ),
-  google_maps_proxy: normalizeText(
-    data?.google_maps_proxy ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.google_maps_proxy
-  ),
-  xhs_cookie: normalizeText(data?.xhs_cookie ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.xhs_cookie),
-  openai_api_key: normalizeText(data?.openai_api_key ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.openai_api_key),
   openai_base_url:
     normalizeText(data?.openai_base_url ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.openai_base_url) ||
     DEFAULT_RUNTIME_BACKEND_SETTINGS.openai_base_url,
   openai_model:
     normalizeText(data?.openai_model ?? DEFAULT_RUNTIME_BACKEND_SETTINGS.openai_model) ||
     DEFAULT_RUNTIME_BACKEND_SETTINGS.openai_model,
+  demo_mode: Boolean(data?.demo_mode),
+  planner_engine: normalizeText(data?.planner_engine) || DEFAULT_RUNTIME_BACKEND_SETTINGS.planner_engine,
+  llm_configured: Boolean(data?.llm_configured),
+  amap_web_configured: Boolean(data?.amap_web_configured),
+  amap_web_js_configured: Boolean(data?.amap_web_js_configured),
+  google_maps_configured: Boolean(data?.google_maps_configured),
+  xhs_configured: Boolean(data?.xhs_configured),
+  runtime_secret_updates_enabled: Boolean(data?.runtime_secret_updates_enabled),
 })
 
 const emitRuntimeSettingsUpdated = () => {
@@ -184,6 +174,25 @@ export function setApiAccessCode(accessCode: string): void {
   else window.sessionStorage.removeItem(API_ACCESS_CODE_STORAGE_KEY)
 }
 
+export class TripTaskFailure extends Error {
+  constructor(
+    message: string,
+    public readonly taskId: string,
+    public readonly traceId: string,
+    public readonly code: string,
+  ) {
+    super(message)
+    this.name = 'TripTaskFailure'
+  }
+}
+
+const getApiErrorMessage = (error: any, fallback: string): string => (
+  error?.response?.data?.error?.message
+  || error?.response?.data?.detail
+  || error?.message
+  || fallback
+)
+
 // 响应拦截器
 apiClient.interceptors.response.use(
   (response) => {
@@ -206,27 +215,10 @@ export async function getBackendRuntimeSettings(): Promise<BackendRuntimeSetting
   }
 }
 
-export async function updateBackendRuntimeSettings(
-  updates: Partial<BackendRuntimeSettings>
-): Promise<BackendRuntimeSettings> {
-  try {
-    const response = await apiClient.put<RuntimeSettingsApiResponse>('/api/settings', updates)
-    return normalizeBackendRuntimeSettings(response.data?.data)
-  } catch (error: any) {
-    console.error('保存运行时配置失败:', error)
-    throw new Error(error.response?.data?.detail || error.message || '保存配置失败')
-  }
-}
-
 export async function getRuntimeSettings(): Promise<RuntimeSettings> {
   const backend = await getBackendRuntimeSettings()
   const apiBaseUrl = getRuntimeApiBaseUrl()
   const mapJsKey = getRuntimeMapJsKey() || backend.vite_amap_web_js_key
-
-  // 同步 Google Maps API Key 到 localStorage 供前端地图组件读取
-  if (backend.google_maps_api_key) {
-    setRuntimeGoogleMapsApiKey(backend.google_maps_api_key)
-  }
 
   return {
     api_base_url: apiBaseUrl,
@@ -236,38 +228,15 @@ export async function getRuntimeSettings(): Promise<RuntimeSettings> {
 }
 
 export async function saveRuntimeSettings(settings: RuntimeSettings): Promise<RuntimeSettings> {
-  const previousApiBaseUrl = getRuntimeApiBaseUrl()
-  const targetApiBaseUrl = normalizeBaseUrl(settings.api_base_url) || previousApiBaseUrl
-  const updates: Partial<BackendRuntimeSettings> = {
-    vite_amap_web_key: settings.vite_amap_web_key,
-    vite_amap_web_js_key: settings.vite_amap_web_js_key,
-    google_maps_api_key: settings.google_maps_api_key,
-    google_maps_proxy: settings.google_maps_proxy,
-    xhs_cookie: settings.xhs_cookie,
-    openai_api_key: settings.openai_api_key,
-    openai_base_url: settings.openai_base_url,
-    openai_model: settings.openai_model,
-  }
-  setRuntimeApiBaseUrl(targetApiBaseUrl)
-
-  let backend: BackendRuntimeSettings
-  try {
-    backend = await updateBackendRuntimeSettings(updates)
-  } catch (error) {
-    setRuntimeApiBaseUrl(previousApiBaseUrl)
-    throw error
-  }
-
-  const apiBaseUrl = setRuntimeApiBaseUrl(targetApiBaseUrl)
-  const mapJsKey = setRuntimeMapJsKey(settings.vite_amap_web_js_key || backend.vite_amap_web_js_key)
-  setRuntimeGoogleMapsApiKey(settings.google_maps_api_key || backend.google_maps_api_key)
+  const apiBaseUrl = setRuntimeApiBaseUrl(settings.api_base_url)
+  const mapJsKey = setRuntimeMapJsKey(settings.vite_amap_web_js_key)
 
   emitRuntimeSettingsUpdated()
 
   return {
+    ...settings,
     api_base_url: apiBaseUrl,
-    ...backend,
-    vite_amap_web_js_key: mapJsKey || backend.vite_amap_web_js_key,
+    vite_amap_web_js_key: mapJsKey,
   }
 }
 
@@ -276,11 +245,44 @@ export async function saveRuntimeSettings(settings: RuntimeSettings): Promise<Ru
  */
 export async function submitTripPlan(formData: TripFormData): Promise<SubmitTripPlanResponse> {
   try {
-    const response = await apiClient.post('/api/trip/plan', formData)
-    return response.data
+    const response = await apiClient.post<TripTaskRecord>('/api/v2/trips', {
+      origin: formData.origin,
+      destinations: formData.cities?.length
+        ? formData.cities
+        : [{ city: formData.city, days: formData.travel_days }],
+      start_date: formData.start_date,
+      end_date: formData.end_date,
+      travel_days: formData.travel_days,
+      budget_total: formData.budget_total,
+      currency: formData.currency || 'CNY',
+      travelers: formData.travelers || 1,
+      transport_preferences: formData.transportation ? [formData.transportation] : [],
+      accommodation_preference: formData.accommodation || null,
+      interests: formData.preferences,
+      must_visit: [],
+      avoid: [],
+      pace: formData.pace || 'balanced',
+      daily_start_time: formData.daily_start_time || '09:00:00',
+      daily_end_time: formData.daily_end_time || '21:00:00',
+      max_daily_walking_minutes: formData.max_daily_walking_minutes,
+      accessibility_needs: formData.accessibility_needs || [],
+      free_text_input: formData.free_text_input,
+      language: formData.language || 'zh',
+      timezone: 'Asia/Shanghai',
+    })
+    const task = response.data
+    return {
+      task_id: task.task_id,
+      trip_id: task.trip_id,
+      trace_id: task.trace_id,
+      plan_id: task.task_id,
+      status: task.status === 'processing' ? 'processing' : 'queued',
+      ws_url: `/api/v2/trips/tasks/${task.task_id}/ws`,
+      message: task.message,
+    }
   } catch (error: any) {
     console.error('提交旅行计划失败:', error)
-    throw new Error(error.response?.data?.detail || error.message || t('api.submitTripPlanFailed'))
+    throw new Error(getApiErrorMessage(error, t('api.submitTripPlanFailed')))
   }
 }
 
@@ -309,16 +311,10 @@ export async function getTripHistory(limit = 8): Promise<TripHistoryItem[]> {
   }
 }
 
-/**
- * 生成旅行计划（兼容旧接口，内部使用轮询）
- */
-export async function generateTripPlan(
-  formData: TripFormData,
-  options?: GenerateTripPlanOptions
-): Promise<TripPlanResponse> {
-  const task = await submitTripPlan(formData)
-  options?.onTaskCreated?.(task)
-
+const watchTripPlanTask = (
+  task: SubmitTripPlanResponse,
+  options?: GenerateTripPlanOptions,
+): Promise<TripPlanResponse> => {
   const wsUrl = task.ws_url.startsWith('ws://') || task.ws_url.startsWith('wss://')
     ? task.ws_url
     : `${getWsBaseUrl()}${task.ws_url}`
@@ -343,7 +339,11 @@ export async function generateTripPlan(
 
     socket.onmessage = (ev) => {
       try {
-        const event = JSON.parse(ev.data) as TripTaskEvent
+        const rawEvent = JSON.parse(ev.data) as Omit<TripTaskEvent, 'plan_id'> & { plan_id?: string }
+        const event: TripTaskEvent = {
+          ...rawEvent,
+          plan_id: rawEvent.plan_id || rawEvent.task_id,
+        }
         options?.onTaskEvent?.(event)
 
         if (event.status === 'completed') {
@@ -354,7 +354,7 @@ export async function generateTripPlan(
           safeResolve({
             ...event.result,
             task_id: event.task_id,
-            trip_id: event.review?.trip_id,
+            trip_id: event.trip_id || event.review?.trip_id,
             review: event.review,
           })
           return
@@ -368,14 +368,20 @@ export async function generateTripPlan(
           safeResolve({
             ...event.result,
             task_id: event.task_id,
-            trip_id: event.review?.trip_id,
+            trip_id: event.trip_id || event.review?.trip_id,
             review: event.review,
           })
           return
         }
 
         if (['failed', 'cancelled', 'rejected'].includes(event.status)) {
-          safeReject(new Error(event.error || event.message || t('api.generateTripPlanFailed')))
+          const error = typeof event.error === 'string' ? { code: event.status, message: event.error } : event.error
+          safeReject(new TripTaskFailure(
+            error?.message || event.message || t('api.generateTripPlanFailed'),
+            event.task_id,
+            event.trace_id || task.trace_id,
+            error?.code || event.status,
+          ))
         }
       } catch (err) {
         safeReject(err)
@@ -383,15 +389,58 @@ export async function generateTripPlan(
     }
 
     socket.onerror = () => {
-      safeReject(new Error(t('api.generateTripPlanFailed')))
+      safeReject(new TripTaskFailure(
+        t('api.generateTripPlanFailed'),
+        task.task_id,
+        task.trace_id,
+        'websocket_error',
+      ))
     }
 
     socket.onclose = () => {
       if (!settled) {
-        safeReject(new Error(t('api.generateTripPlanFailed')))
+        safeReject(new TripTaskFailure(
+          t('api.generateTripPlanFailed'),
+          task.task_id,
+          task.trace_id,
+          'websocket_closed',
+        ))
       }
     }
   })
+}
+
+export async function generateTripPlan(
+  formData: TripFormData,
+  options?: GenerateTripPlanOptions
+): Promise<TripPlanResponse> {
+  const task = await submitTripPlan(formData)
+  options?.onTaskCreated?.(task)
+  return watchTripPlanTask(task, options)
+}
+
+export async function retryTripPlan(
+  taskId: string,
+  options?: GenerateTripPlanOptions,
+): Promise<TripPlanResponse> {
+  try {
+    const response = await apiClient.post<TripTaskRecord>(`/api/v2/trips/tasks/${taskId}/retry`)
+    const record = response.data
+    const task: SubmitTripPlanResponse = {
+      task_id: record.task_id,
+      trip_id: record.trip_id,
+      trace_id: record.trace_id,
+      plan_id: record.task_id,
+      status: record.status === 'processing' ? 'processing' : 'queued',
+      ws_url: `/api/v2/trips/tasks/${record.task_id}/ws`,
+      message: record.message,
+    }
+    options?.onTaskCreated?.(task)
+    return watchTripPlanTask(task, options)
+  } catch (error: any) {
+    if (error instanceof TripTaskFailure) throw error
+    throw new Error(getApiErrorMessage(error, t('api.generateTripPlanFailed')))
+  }
 }
 
 export async function getTripTask(taskId: string): Promise<TripTaskRecord> {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import timedelta
 from time import perf_counter
 from typing import Any
 
@@ -11,7 +12,14 @@ from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from ...config import get_settings
-from ...domain.trip_models import TripPlanV2
+from ...domain.trip_models import (
+    AttractionV2,
+    BudgetV2,
+    DayPlanV2,
+    HotelV2,
+    MealV2,
+    TripPlanV2,
+)
 from ...services.observability import PROMPT_VERSION, calculate_model_cost
 from .state import TripState
 
@@ -22,6 +30,97 @@ class StructuredPlanConfigurationError(RuntimeError):
 
 class StructuredPlanGenerationError(RuntimeError):
     """Raised after all complete structured-output attempts fail."""
+
+
+class DemoPlanGenerator:
+    """Build a deterministic, clearly labeled plan without external API calls."""
+
+    uses_provider = False
+    model_id = "demo-deterministic"
+
+    def __init__(self) -> None:
+        self.last_metrics: dict[str, Any] = {}
+
+    def __call__(self, state: TripState) -> TripPlanV2:
+        started = perf_counter()
+        request = state["request"]
+        city_by_day = [
+            destination.city
+            for destination in request.destinations
+            for _ in range(destination.days)
+        ]
+        transport = ", ".join(request.transport_preferences) or "public transit"
+        days: list[DayPlanV2] = []
+        for day_index, city in enumerate(city_by_day):
+            days.append(
+                DayPlanV2(
+                    date=request.start_date + timedelta(days=day_index),
+                    day_index=day_index,
+                    city=city,
+                    description=f"Demo itinerary for {city}; verify live details before travel.",
+                    transportation=transport,
+                    accommodation=request.accommodation_preference or "Demo midscale hotel",
+                    hotel=HotelV2(
+                        name=f"{city} demo hotel",
+                        type="demo accommodation",
+                        price_range="CNY 300-500",
+                        estimated_cost=400,
+                    ),
+                    attractions=[
+                        AttractionV2(
+                            name=f"{city} orientation walk (demo)",
+                            visit_duration=90,
+                            description="Deterministic sample stop; no live place fact is asserted.",
+                        ),
+                        AttractionV2(
+                            name=f"{city} culture stop (demo)",
+                            visit_duration=90,
+                            description="Deterministic sample stop; check opening hours independently.",
+                        ),
+                    ],
+                    meals=[
+                        MealV2(
+                            type="lunch",
+                            name=f"Local lunch placeholder in {city}",
+                            description="Demo recommendation without live availability.",
+                            estimated_cost=60,
+                        ),
+                        MealV2(
+                            type="dinner",
+                            name=f"Local dinner placeholder in {city}",
+                            description="Demo recommendation without live availability.",
+                            estimated_cost=90,
+                        ),
+                    ],
+                    arrangement_rationale=(
+                        "Demo mode keeps a moderate schedule with explicit transfer and rest buffers."
+                    ),
+                )
+            )
+        self.last_metrics = {
+            "model_id": self.model_id,
+            "prompt_version": "demo/1.0.0",
+            "latency_ms": round((perf_counter() - started) * 1000),
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "model_cost_usd": 0,
+            "retry_count": 0,
+            "status": "success",
+            "demo_mode": True,
+        }
+        return TripPlanV2(
+            origin=request.origin,
+            city=city_by_day[0],
+            cities=[destination.city for destination in request.destinations],
+            start_date=request.start_date,
+            end_date=request.end_date,
+            days=days,
+            overall_suggestions=(
+                "DEMO MODE: deterministic sample data only. Verify places, prices, routes, and hours."
+            ),
+            budget=BudgetV2(),
+        )
 
 
 def _json_default(value: Any) -> Any:
@@ -74,6 +173,8 @@ def _prompt_messages(state: TripState) -> list[dict[str, str]]:
 
 class NativeJsonPlanGenerator:
     """Generate a TripPlanV2 through a provider's native JSON response mode."""
+
+    uses_provider = True
 
     def __init__(
         self,
@@ -209,3 +310,10 @@ def build_structured_plan_generator() -> NativeJsonPlanGenerator:
         max_tokens=settings.llm_structured_max_tokens,
         max_attempts=settings.llm_structured_max_attempts,
     )
+
+
+def build_configured_plan_generator() -> NativeJsonPlanGenerator | DemoPlanGenerator:
+    """Select the paid provider or deterministic demo generator explicitly."""
+    if get_settings().demo_mode:
+        return DemoPlanGenerator()
+    return build_structured_plan_generator()

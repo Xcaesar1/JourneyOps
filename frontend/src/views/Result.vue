@@ -586,8 +586,7 @@
 
           <div class="right-map" v-show="activeSection === 'map'">
             <a-card id="map" :bordered="false" class="map-card section-shellless">
-              <div v-show="mapProviderType === 'google'" id="google-map-container" style="width: 100%; height: 100%"></div>
-              <div v-show="mapProviderType === 'amap'" id="amap-container" style="width: 100%; height: 100%"></div>
+              <div id="amap-container" style="width: 100%; height: 100%"></div>
             </a-card>
           </div>
         </div>
@@ -978,7 +977,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
 import AMapLoader from '@amap/amap-jsapi-loader'
-import { Loader as GoogleMapsLoader } from '@googlemaps/js-api-loader'
 import html2canvas from 'html2canvas'
 import * as echarts from 'echarts'
 import Swiper from 'swiper'
@@ -1013,8 +1011,6 @@ import {
   compareTripVersions,
   getRuntimeApiBaseUrl,
   getRuntimeMapJsKey,
-  getRuntimeGoogleMapsApiKey,
-  getBackendRuntimeSettings,
   getTripTask,
   getTripVersion,
   getTripVersions,
@@ -1060,12 +1056,6 @@ const activeDays = ref<number[]>([0]) // 默认展开第一天
 const activeOverviewCard = ref(1)
 const overviewSwiperContainerRef = ref<HTMLElement | null>(null)
 let map: any = null
-let googleMap: google.maps.Map | null = null
-let googleMarkers: google.maps.Marker[] = []
-let googlePolylines: google.maps.Polyline[] = []
-let googleInfoWindows: google.maps.InfoWindow[] = []
-let googleDirectionsRenderers: google.maps.DirectionsRenderer[] = []
-const mapProviderType = ref<'google' | 'amap'>('amap')
 let overviewSwiper: Swiper | null = null
 
 const nextVersionNumber = computed(() => (
@@ -1695,18 +1685,6 @@ const restoreVersion = async (version: number) => {
 }
 
 const destroyCurrentMap = () => {
-  // 清理 Google Maps
-  googleInfoWindows.forEach((iw) => { try { iw.close() } catch {} })
-  googleInfoWindows = []
-  googleMarkers.forEach((m) => { try { m.setMap(null) } catch {} })
-  googleMarkers = []
-  googlePolylines.forEach((p) => { try { p.setMap(null) } catch {} })
-  googlePolylines = []
-  googleDirectionsRenderers.forEach((r) => { try { r.setMap(null) } catch {} })
-  googleDirectionsRenderers = []
-  googleMap = null
-
-  // 清理高德地图
   if (map) {
     try { map.destroy() } catch {}
     map = null
@@ -1715,12 +1693,7 @@ const destroyCurrentMap = () => {
 
 const ensureMapReady = async () => {
   await nextTick()
-  // Google Maps 优先检测
-  if (mapProviderType.value === 'google' && googleMap) {
-    google.maps.event.trigger(googleMap, 'resize')
-    return
-  }
-  if (mapProviderType.value === 'amap' && map) {
+  if (map) {
     if (typeof map.resize === 'function') {
       map.resize()
     }
@@ -2809,9 +2782,7 @@ const buildExportHTML = (mapDataUrl: string = ''): string => {
 // ========== 捕获地图截图 ==========
 const captureMapScreenshot = async (): Promise<string> => {
   try {
-    // 根据当前地图供应商选择对应的 DOM 容器
-    const containerId = mapProviderType.value === 'google' ? 'google-map-container' : 'amap-container'
-    const mapEl = document.getElementById(containerId)
+    const mapEl = document.getElementById('amap-container')
     if (!mapEl || mapEl.clientHeight === 0) {
       console.warn('⚠️ 地图容器不可见或未初始化，跳过地图截图')
       return ''
@@ -3290,264 +3261,21 @@ const searchRoutePath = (
   })
 }
 
-// 初始化地图入口
 const initMap = async () => {
-  // 1. 先尝试从 localStorage 读取 Google Maps API Key
-  let googleKey = getRuntimeGoogleMapsApiKey()
-
-  // 2. 如果 localStorage 没有缓存，主动从后端拉取一次
-  if (!googleKey) {
-    try {
-      const backendSettings = await getBackendRuntimeSettings()
-      if (backendSettings.google_maps_api_key) {
-        googleKey = backendSettings.google_maps_api_key
-        // 同步到 localStorage，下次不再需要请求后端
-        const { setRuntimeGoogleMapsApiKey: syncKey } = await import('@/services/api')
-        syncKey(googleKey)
-      }
-    } catch (err) {
-      console.warn('从后端获取 Google Maps 配置失败:', err)
-    }
-  }
-
-  // 3. 尝试初始化 Google Maps
-  if (googleKey) {
-    try {
-      // 超时控制：如果 5 秒内未加载完，强制 reject 以触发降级
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Google Maps 加载超时，可能由于网络环境限制')), 5000)
-      })
-      const initPromise = initGoogleMap(googleKey)
-      await Promise.race([initPromise, timeoutPromise])
-      return
-    } catch (error) {
-      console.warn('Google Maps 加载失败，即将降级到高德地图:', error)
-      destroyCurrentMap()
-      // 等待 DOM 更新，确保高德容器可以显示
-      await nextTick()
-    }
-  }
-
-  // 4. 降级/默认：初始化高德地图
   await initAMap()
-}
-
-// 初始化 Google Maps
-const initGoogleMap = async (apiKey: string) => {
-  mapProviderType.value = 'google'
-  const loader = new GoogleMapsLoader({
-    apiKey,
-    version: 'weekly',
-    language: 'zh-CN', // 保持语言为中文体验较好
-  })
-
-  // 这会抛出异常，如由于网络、无代理引起等，正好会被上层捕捉
-  const googleApi = await loader.importLibrary('maps')
-  const { Map } = googleApi as google.maps.MapsLibrary
-
-  // 加载可能用到的模块
-  await loader.importLibrary('routes')
-  await loader.importLibrary('marker')
-
-  const container = document.getElementById('google-map-container')
-  if (!container) throw new Error('Cannot find google-map-container')
-
-  googleMap = new Map(container, {
-    center: { lat: 39.916527, lng: 116.397128 },
-    zoom: 12,
-    mapTypeId: 'roadmap',
-    // 隐藏默认控件，让其风格更接近我们的自定义风格
-    disableDefaultUI: true,
-    zoomControl: true,
-    styles: [
-      { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
-      { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
-      { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
-      { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-      { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-      { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#263c3f' }] },
-      { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#6b9a76' }] },
-      { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#38414e' }] },
-      { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#212a37' }] },
-      { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
-      { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#746855' }] },
-      { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1f2835' }] },
-      { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#f3d19c' }] },
-      { featureType: 'transit', elementType: 'geometry', stylers: [{ color: '#2f3948' }] },
-      { featureType: 'transit.station', elementType: 'labels.text.fill', stylers: [{ color: '#d59563' }] },
-      { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#17263c' }] },
-      { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] },
-      { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#17263c' }] },
-    ],
-  })
-
-  // 添加景点标记
-  await addGoogleAttractionMarkers()
-
-  message.success(t('result.messages.mapLoaded'))
-}
-
-// 添加 Google Maps 景点标记
-const addGoogleAttractionMarkers = async () => {
-  if (!tripPlan.value || !googleMap) return
-
-  const allAttractions: any[] = []
-  let globalIndex = 0
-
-  tripPlan.value.days.forEach((day, dayIndex) => {
-    day.attractions.forEach((attraction, attrIndex) => {
-      globalIndex++
-      if (attraction.location && attraction.location.longitude && attraction.location.latitude) {
-        allAttractions.push({
-          ...attraction,
-          dayIndex,
-          attrIndex,
-          globalIndex,
-        })
-      }
-    })
-  })
-
-  const bounds = new google.maps.LatLngBounds()
-
-  allAttractions.forEach((attraction, index) => {
-    const position = { lat: attraction.location.latitude, lng: attraction.location.longitude }
-    bounds.extend(position)
-
-    // 创建自定义 DOM 元素以模拟 AMap 的原生样式
-    const div = document.createElement('div')
-    div.innerHTML = buildMarkerContent(attraction.dayIndex + 1, attraction.attrIndex + 1)
-    // 为了使 HTML 居中在点上，可以用 Marker 的 icon 承载或者用 AdvancedMarkerElement (如果你需要标准 API)。
-    // 这里采用兼容大多数的简单的 svg data URI：
-    // 这里如果想完全复用 DOM 较为复杂，我们可以直接采用原生的 google.maps.Marker 与自定义 icon
-    // 用一个简单的 SVG data URI 画一个有数字的 icon
-    const markerText = `${attraction.dayIndex + 1}-${attraction.attrIndex + 1}`
-    const svgIcon = `data:image/svg+xml;charset=UTF-8,` + encodeURIComponent(`
-      <svg xmlns="http://www.w3.org/2000/svg" width="34" height="42" viewBox="0 0 34 42">
-        <path d="M17 0C7.6 0 0 7.6 0 17C0 29.8 17 42 17 42C17 42 34 29.8 34 17C34 7.6 26.4 0 17 0Z" fill="#ff5722" stroke="#fff" stroke-width="2"/>
-        <text x="17" y="22" font-family="sans-serif" font-size="12" font-weight="bold" fill="white" text-anchor="middle">${markerText}</text>
-      </svg>
-    `)
-
-    const marker = new google.maps.Marker({
-      position,
-      map: googleMap,
-      icon: {
-        url: svgIcon,
-        scaledSize: new google.maps.Size(34, 42),
-        anchor: new google.maps.Point(17, 42),
-      },
-      zIndex: 120 + index
-    })
-
-    const infoWindow = new google.maps.InfoWindow({
-      content: buildInfoWindowContent(attraction),
-      disableAutoPan: true,
-    })
-
-    marker.addListener('mouseover', () => { infoWindow.open({ anchor: marker, map: googleMap }) })
-    marker.addListener('mouseout', () => { infoWindow.close() })
-    marker.addListener('click', () => { infoWindow.open({ anchor: marker, map: googleMap }) })
-
-    googleMarkers.push(marker)
-    googleInfoWindows.push(infoWindow)
-  })
-
-  // 绘制 Google Maps 路线
-  await drawGoogleRoutes(allAttractions)
-
-  if (allAttractions.length > 0 && googleMap) {
-    googleMap.fitBounds(bounds)
-    // 防止过于放大
-    const currentZoom = googleMap.getZoom()
-    if (currentZoom && currentZoom > 15) googleMap.setZoom(15)
-  }
-}
-
-// 绘制 Google Maps 路线
-const drawGoogleRoutes = async (attractions: any[]) => {
-  if (attractions.length < 2 || !tripPlan.value || !googleMap) return
-
-  const dayGroups: Record<number, any[]> = {}
-  attractions.forEach(attr => {
-    if (!dayGroups[attr.dayIndex]) dayGroups[attr.dayIndex] = []
-    dayGroups[attr.dayIndex].push(attr)
-  })
-
-  const directionsService = new google.maps.DirectionsService()
-
-  for (const dayAttractions of Object.values(dayGroups)) {
-    if (dayAttractions.length < 2) continue
-
-    dayAttractions.sort((a: any, b: any) => a.attrIndex - b.attrIndex)
-    const dayIndex = dayAttractions[0].dayIndex
-    const transportation = tripPlan.value.days?.[dayIndex]?.transportation || ''
-    const preferredMode = detectRouteMode(transportation)
-
-    let gTravelMode = google.maps.TravelMode.DRIVING
-    if (preferredMode === 'walking') gTravelMode = google.maps.TravelMode.WALKING
-
-    for (let i = 0; i < dayAttractions.length - 1; i++) {
-      const start = dayAttractions[i]
-      const end = dayAttractions[i + 1]
-      const origin = { lat: start.location.latitude, lng: start.location.longitude }
-      const destination = { lat: end.location.latitude, lng: end.location.longitude }
-
-      if (preferredMode === 'straight') {
-        const poly = new google.maps.Polyline({
-          path: [origin, destination],
-          strokeColor: '#ffffff',
-          strokeWeight: 1.5,
-          strokeOpacity: 0.62,
-          map: googleMap,
-          zIndex: 90,
-        })
-        googlePolylines.push(poly)
-        continue
-      }
-
-      try {
-        const response = await directionsService.route({
-          origin,
-          destination,
-          travelMode: gTravelMode,
-        })
-
-        const renderer = new google.maps.DirectionsRenderer({
-          map: googleMap,
-          directions: response,
-          suppressMarkers: true, // 我们已经有了自定义 Marker
-          polylineOptions: {
-            strokeColor: preferredMode === 'walking' ? '#6ad38f' : '#37b4ff',
-            strokeWeight: preferredMode === 'walking' ? 3 : 3.5,
-            zIndex: 90,
-          }
-        })
-        googleDirectionsRenderers.push(renderer)
-      } catch (err: any) {
-        console.warn('Google 路线规划失败, 降级为直线:', err)
-        const poly = new google.maps.Polyline({
-          path: [origin, destination],
-          strokeColor: '#ffffff',
-          strokeWeight: 1.5,
-          strokeOpacity: 0.62,
-          map: googleMap,
-          zIndex: 90,
-        })
-        googlePolylines.push(poly)
-      }
-    }
-  }
 }
 
 // 初始化高德地图
 const initAMap = async () => {
   try {
-    mapProviderType.value = 'amap'
     const mapJsKey = getRuntimeMapJsKey()
     if (!mapJsKey) {
       message.warning('请先在设置中配置高德地图 JS Key')
       return
+    }
+    const securityJsCode = String(import.meta.env.VITE_AMAP_SECURITY_JS_CODE || '').trim()
+    if (securityJsCode) {
+      ;(window as any)._AMapSecurityConfig = { securityJsCode }
     }
     const AMap = await AMapLoader.load({
       key: mapJsKey,  // 高德地图Web端(JS API) Key

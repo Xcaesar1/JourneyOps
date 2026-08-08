@@ -2,13 +2,19 @@ x-app-build: &app-build
   context: .
   dockerfile: Dockerfile
   args:
-    VITE_AMAP_WEB_JS_KEY: ${VITE_AMAP_WEB_JS_KEY:-your_amap_web_js_api_key_here}
-    VITE_AMAP_WEB_KEY: ${VITE_AMAP_WEB_KEY:-your_amap_web_api_key_here}
+    VITE_AMAP_WEB_JS_KEY: ${VITE_AMAP_WEB_JS_KEY:-}
+    VITE_AMAP_SECURITY_JS_CODE: ${VITE_AMAP_SECURITY_JS_CODE:-}
+
+x-service-logging: &service-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 x-app-environment: &app-environment
-  LLM_API_KEY: ${LLM_API_KEY:-your_key}
-  LLM_BASE_URL: ${LLM_BASE_URL:-your_url}
-  LLM_MODEL_ID: ${LLM_MODEL_ID:-your_model}
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_MODEL_ID: ${LLM_MODEL_ID:-}
   LLM_TIMEOUT: ${LLM_TIMEOUT:-600}
   LLM_STRUCTURED_MAX_TOKENS: ${LLM_STRUCTURED_MAX_TOKENS:-32768}
   LLM_STRUCTURED_MAX_ATTEMPTS: ${LLM_STRUCTURED_MAX_ATTEMPTS:-2}
@@ -23,12 +29,16 @@ x-app-environment: &app-environment
   API_RATE_LIMIT_WINDOW_SECONDS: ${API_RATE_LIMIT_WINDOW_SECONDS:-60}
   API_MAX_ACTIVE_TRIP_TASKS: ${API_MAX_ACTIVE_TRIP_TASKS:-4}
   API_MAX_REQUEST_BYTES: ${API_MAX_REQUEST_BYTES:-32768}
+  API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+  RUNTIME_SECRET_UPDATES_ENABLED: ${RUNTIME_SECRET_UPDATES_ENABLED:-false}
+  DEMO_MODE: ${DEMO_MODE:-false}
   LEGACY_JSON_REPAIR: ${LEGACY_JSON_REPAIR:-true}
   PLANNER_ENGINE: ${PLANNER_ENGINE:-legacy}
   PLANNER_COMPARE_ENGINES: ${PLANNER_COMPARE_ENGINES:-false}
   TRIP_PLANNER_TIMEOUT: ${TRIP_PLANNER_TIMEOUT:-420}
-  VITE_AMAP_WEB_KEY: ${VITE_AMAP_WEB_KEY:-your_amap_web_api_key_here}
-  XHS_COOKIE: ${XHS_COOKIE:-your_xhs_cookie_here}
+  VITE_AMAP_WEB_KEY: ${VITE_AMAP_WEB_KEY:-}
+  VITE_AMAP_WEB_JS_KEY: ${VITE_AMAP_WEB_JS_KEY:-}
+  XHS_COOKIE: ${XHS_COOKIE:-}
   XHS_ENABLED: ${XHS_ENABLED:-false}
   BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
   BRAVE_SEARCH_BASE_URL: ${BRAVE_SEARCH_BASE_URL:-https://api.search.brave.com/res/v1/web/search}
@@ -64,6 +74,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+    logging: *service-logging
+    cpus: 0.75
+    mem_limit: 768m
     restart: unless-stopped
 
   redis:
@@ -76,6 +89,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+    logging: *service-logging
+    cpus: 0.25
+    mem_limit: 256m
     restart: unless-stopped
 
   migrate:
@@ -91,6 +107,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    logging: *service-logging
+    cpus: 1.0
+    mem_limit: 1g
     restart: "no"
 
   worker:
@@ -119,6 +138,9 @@ services:
       timeout: 8s
       retries: 8
       start_period: 20s
+    logging: *service-logging
+    cpus: 1.5
+    mem_limit: 2g
     restart: unless-stopped
 
   trip-planner:
@@ -146,6 +168,9 @@ services:
       timeout: 5s
       retries: 8
       start_period: 20s
+    logging: *service-logging
+    cpus: 1.0
+    mem_limit: 1g
     restart: unless-stopped
 
 volumes:

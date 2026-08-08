@@ -8,9 +8,12 @@ from typing import Any
 import pytest
 from backend.app.agents.journey_graph.nodes import build_placeholder_plan, normalize_request
 from backend.app.agents.journey_graph.structured_output import (
+    DemoPlanGenerator,
     NativeJsonPlanGenerator,
     StructuredPlanGenerationError,
+    build_configured_plan_generator,
 )
+from backend.app.config import settings
 from backend.app.domain.trip_models import TRIP_REQUEST_V2_EXAMPLE, TripPlanV2
 
 
@@ -96,3 +99,18 @@ def test_invalid_output_raises_redacted_typed_error() -> None:
 
     assert sensitive_invalid_output not in str(captured.value)
     assert "json_invalid" in str(captured.value)
+
+
+def test_demo_generator_needs_no_provider_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "demo_mode", True)
+    monkeypatch.setattr(settings, "openai_api_key", "")
+
+    generator = build_configured_plan_generator()
+    plan = generator(_normalized_state())
+
+    assert isinstance(generator, DemoPlanGenerator)
+    assert plan.schema_version == "2.0"
+    assert len(plan.days) == 5
+    assert all("demo" in day.attractions[0].name.casefold() for day in plan.days)
+    assert generator.last_metrics["total_tokens"] == 0
+    assert generator.last_metrics["model_cost_usd"] == 0

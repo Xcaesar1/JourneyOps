@@ -153,6 +153,23 @@ def test_compiled_journey_graph_runs_all_phase_three_nodes() -> None:
     assert result["metrics"]["persisted"] is True
 
 
+def test_journey_graph_reports_real_node_execution_order() -> None:
+    observed: list[str] = []
+
+    build_journey_graph(node_observer=observed.append).invoke(_initial_state())
+
+    assert observed[:5] == [
+        "normalize_request",
+        "prepare_research_queries",
+        "research_web",
+        "collect",
+        "plan_intercity_transport",
+    ]
+    assert "draft" in observed
+    assert "deterministic_validate" in observed
+    assert observed[-1] == "persist"
+
+
 def test_journey_graph_mermaid_contains_ordered_nodes() -> None:
     mermaid = build_journey_graph().get_graph().draw_mermaid()
 

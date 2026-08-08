@@ -1,7 +1,26 @@
 # Deployment And Rollback
 
-本文件描述阶段 7 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
+本文件描述阶段 8 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
 Oracle staging，使用独立端口、独立 named volumes 和可回滚的镜像标签。
+
+## Keyless Demo
+
+Demo 使用独立 project name、端口和数据卷，不读取真实 Provider Secret，也不发起外部模型、搜索、
+地图 Web Service 或社区数据请求：
+
+```bash
+cp .env.demo.example .env.demo
+chmod 0600 .env.demo
+docker compose --env-file .env.demo \
+  -f docker-compose.yaml -f docker-compose.demo.yaml config --quiet
+docker compose --env-file .env.demo \
+  -f docker-compose.yaml -f docker-compose.demo.yaml up --build -d
+curl --fail --silent http://127.0.0.1:17862/health/live
+curl --fail --silent http://127.0.0.1:17862/health/ready
+```
+
+公网 TLS 终止示例位于 `deploy/caddy/Caddyfile.example` 和
+`deploy/nginx/journeyops.conf.example`。反向代理只应指向 loopback Compose 端口。
 
 ## Staging Deploy
 
@@ -16,7 +35,7 @@ chmod 0600 .env.staging
 只在未跟踪的 `.env.staging` 中填写 Secret。`POSTGRES_PASSWORD` 使用随机、URL-safe 字符；
 不得打印该文件。
 
-阶段 7 部署至少显式设置以下非 Secret flags：
+阶段 8 部署至少显式设置以下非 Secret flags：
 
 ```dotenv
 IMAGE_TAG=phase7-<short-commit>
@@ -37,6 +56,9 @@ API_MAX_ACTIVE_TRIP_TASKS=4
 API_MAX_REQUEST_BYTES=32768
 LLM_MAX_TOKENS_PER_TRIP=80000
 LLM_MAX_COST_PER_TRIP_USD=2.0
+DEMO_MODE=false
+API_DOCS_ENABLED=false
+RUNTIME_SECRET_UPDATES_ENABLED=false
 ```
 
 `BRAVE_SEARCH_API_KEY` 是可选 Secret，只能保存在未跟踪的 `.env.staging`。未配置时使用 Noop
