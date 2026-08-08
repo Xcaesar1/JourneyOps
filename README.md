@@ -10,11 +10,10 @@
   <img src="https://img.shields.io/badge/FastAPI-0.100+-teal.svg">
 </p>
 
-> JourneyOps 二次开发状态：阶段 5 已实现显式出发地、城际交通候选、路线/距离 Provider、
-> 确定性每日时间轴和预算，以及日期、时间、路线、预算、营业时间、强度六类校验器。
-> critical 问题会进入最多两轮的修订闭环，最终问题按 critical/warning/info 展示；系统只给出
-> 规划估算，不虚构车次、航班号、实时余票或实时票价。当前架构、验收、部署和回滚说明见
-> `docs/ARCHITECTURE.md`、`docs/PHASE_5_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。
+> JourneyOps 二次开发状态：阶段 6 已实现初版人工审核、确认/修改/拒绝、局部动态重规划、
+> 结构化差异、不可变版本和回滚。待审核草案不会写入版本；只在确认后推进活动版本，服务重启
+> 或离开页面后仍可继续审核。当前架构、验收、部署和回滚说明见 `docs/ARCHITECTURE.md`、
+> `docs/PHASE_6_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。阶段 7 尚未开始。
 
 <div align="center">
 

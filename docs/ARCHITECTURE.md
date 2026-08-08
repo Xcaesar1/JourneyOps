@@ -1,6 +1,6 @@
 # JourneyOps Architecture
 
-## Phase 5 Runtime
+## Phase 6 Runtime
 
 ```mermaid
 flowchart LR
@@ -17,15 +17,18 @@ flowchart LR
     Queries["Bounded research queries"]
     WebResearch["Brave / Noop / Fallback"]
     SourceCache[("Redis source cache with TTL")]
-    Evidence[("SourceEvidence and version links")]
+    Evidence[("SourceEvidence, reviews and immutable versions")]
     Community["Optional XHS community context"]
     Routing["AMap / Noop / Fallback route estimates"]
     Enrich["Deterministic timeline and budget"]
     Validate["Six deterministic validators"]
     Revise["Bounded revise loop, max 2"]
+    Review["Durable human review interrupt"]
+    Replan["Scoped ReplanGraph"]
+    Diff["Structured version diff"]
     Checkpoints[("PostgreSQL checkpoints")]
     Adapter["TripPlanV2 to legacy Adapter"]
-    UI["Transport, timeline and validation UI"]
+    UI["Review, diff and version workspace"]
     Providers["LLM, maps and weather"]
 
     Client -->|"legacy or v2 POST"| API1
@@ -51,10 +54,15 @@ flowchart LR
     Validate --> Revise
     Revise --> Enrich
     Graph <--> Checkpoints
-    Graph --> Adapter
-    Graph --> Evidence
+    Graph --> Review
+    Review -->|"approve"| Adapter
+    Review -->|"modify"| Replan
+    Review -->|"reject"| Evidence
+    Replan --> Diff
+    Diff --> Review
+    Adapter --> Evidence
     Adapter --> Worker
-    Worker -->|"progress + immutable version"| DB
+    Worker -->|"progress + proposal or approved version"| DB
     Worker -->|"best-effort snapshot"| Events
     Events -->|"WebSocket trigger"| API1
     API1 -->|"reconciled event"| Client
@@ -64,8 +72,8 @@ flowchart LR
 
 ## Persistence Boundaries
 
-- `trips` stores the canonical request and idempotency digest.
-- `trip_tasks` stores execution status, progress, attempts, cancellation and terminal errors.
+- `trips` stores the canonical request, idempotency digest and current `active_version` pointer.
+- `trip_tasks` stores execution status, progress, attempts, cancellation, review linkage and terminal errors.
 - `trip_versions` stores immutable outputs with unique `(trip_id, version)`. Phase 3 adds planner engine,
   primary/comparison role, schema version and optional native `TripPlanV2` payload metadata.
 - The phase 5 native payload owns the normalized origin, route estimates, intercity transport options,
@@ -73,6 +81,10 @@ flowchart LR
   part of the immutable version rather than mutable process state.
 - `source_evidence` deduplicates source metadata and explicit `unknown` markers. `trip_source_links` binds
   evidence to an immutable trip version, so a later refresh cannot silently rewrite historical output.
+- `trip_reviews` stores initial/replan/rollback workflow type, pending proposal, decision, impact scope,
+  structured diff, reason, sources and validation report. A proposal is durable but is not a version.
+- Phase 6 version rows also store parent version, review id, role, reason, source list and validation report.
+  Approval and rollback append rows; they never rewrite historical payloads.
 - LangGraph checkpoint tables store resumable typed graph state by durable task id. Their serializer rejects
   types outside the explicit allowlist when `LANGGRAPH_STRICT_MSGPACK=true`.
 - Redis broker messages and Pub/Sub events may be lost or duplicated; database constraints and Worker
@@ -91,6 +103,7 @@ sequenceDiagram
     participant W as Celery Worker
     participant S as Engine Selector
     participant G as JourneyGraph or Legacy Planner
+    participant H as Human reviewer
 
     C->>A: POST trip request
     A->>P: INSERT trip and task
@@ -108,13 +121,24 @@ sequenceDiagram
         R-->>A: Pub/Sub event
         A-->>C: WebSocket event
     end
-    W->>P: INSERT trip version and complete task
+    G->>P: persist proposal, review and checkpoint
+    W->>P: set awaiting_approval without a version
+    H->>A: approve, modify or reject
+    A->>P: persist decision before dispatch
+    A->>R: enqueue graph continuation
+    R->>W: deliver task_id
+    alt approve
+        W->>P: append immutable version and move active pointer
+    else modify
+        W->>G: run scoped ReplanGraph and create a new proposal
+    else reject replan
+        W->>P: preserve active version and completed result
+    end
 ```
 
 ## JourneyGraph
 
-The phase 5 graph adds route planning, deterministic enrichment, validation and bounded revision while
-retaining phase 4 research and durable checkpoints:
+The phase 6 graph retains phase 5 planning and adds a durable review decision before persistence:
 
 ```mermaid
 flowchart LR
@@ -128,8 +152,11 @@ flowchart LR
     Enrich --> Validate[deterministic_validate]
     Validate -->|"critical and revisions < 2"| Revise[revise_plan]
     Revise --> Enrich
-    Validate -->|"no critical or limit reached"| Persist[persist]
+    Validate -->|"no critical or limit reached"| Review[human_review]
+    Review -->|"approve"| Persist[persist]
+    Review -->|"reject"| Reject[reject_plan]
     Persist --> End([END])
+    Reject --> End
 ```
 
 `prepare_research_queries` and `research_web` retain the phase 4 evidence policy. After collection,
@@ -142,7 +169,34 @@ estimates, not schedules, availability or live fares.
 graph-owned evidence. `enrich_plan` creates unique schedule items that close each requested daily window and
 recalculates all budget components. `deterministic_validate` runs structure/date, time, route, budget, opening
 hours and intensity checks. A critical issue loops through `revise_plan` at most twice; unresolved issues are
-persisted and shown instead of being hidden. The Adapter carries these fields into the legacy frontend response.
+shown instead of being hidden. The review node persists the proposal and interrupts the task. Only approval
+routes to `persist`; initial rejection exits without a version. The Adapter carries approved fields into the
+legacy frontend response.
+
+## ReplanGraph
+
+```mermaid
+flowchart LR
+    Start([START]) --> Impact[analyze_change_request]
+    Impact --> Refresh[refresh_impacted_data]
+    Refresh --> Patch[apply_changes]
+    Patch --> Enrich[enrich_replan]
+    Enrich --> Validate[validate_replan]
+    Validate -->|"critical and revisions < 2"| Revise[revise_replan]
+    Revise --> Enrich
+    Validate -->|"otherwise"| Diff[compute_diff]
+    Diff --> Review[human_review]
+    Review -->|"approve"| Finalize[finalize_replan]
+    Review -->|"modify"| Impact
+    Review -->|"reject"| Reject[reject_replan]
+    Finalize --> End([END])
+    Reject --> End
+```
+
+Impact analysis explicitly identifies day indexes, fields and whether research, routing, timeline or budget
+must be refreshed. Unaffected days are copied with stable identifiers. The graph validates the proposal and
+computes a structured diff before interrupting. Approval appends a new version; no-op approval returns `409`.
+Rollback copies a historical payload into a new `rollback` version so history remains immutable.
 
 Official trust is assigned only through configured domain allowlists or recognized government suffixes.
 Web evidence is cached in Redis using `SOURCE_CACHE_TTL_SECONDS`; XHS is optional community context and is
@@ -169,6 +223,10 @@ disabled unless both `XHS_ENABLED=true` and a Cookie are configured.
   upstream payloads and credential-bearing request URLs do not enter graph state, API responses or INFO logs.
 - Validation is program-owned. The LLM cannot override request identity, computed route metadata, timeline,
   budget totals, validation results or the two-revision limit.
+- Review decisions are committed before continuation is dispatched. PostgreSQL review rows and LangGraph
+  checkpoints survive API/Worker restarts; repeated delivery reuses the same decision and version constraints.
+- Replan rejection preserves the active version and completed result. A no-op diff cannot be approved, and a
+  rollback always appends a new version rather than mutating the target historical row.
 - XHS failures return a language-specific fallback context. Raw Cookie values and upstream exception text do
   not enter graph state, API responses or logs.
 

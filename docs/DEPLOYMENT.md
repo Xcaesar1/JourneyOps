@@ -1,6 +1,6 @@
 # Deployment And Rollback
 
-本文件描述阶段 5 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
+本文件描述阶段 6 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
 Oracle staging，使用独立端口、独立 named volumes 和可回滚的镜像标签。
 
 ## Staging Deploy
@@ -16,10 +16,10 @@ chmod 0600 .env.staging
 只在未跟踪的 `.env.staging` 中填写 Secret。`POSTGRES_PASSWORD` 使用随机、URL-safe 字符；
 不得打印该文件。
 
-阶段 5 部署至少显式设置以下非 Secret flags：
+阶段 6 部署至少显式设置以下非 Secret flags：
 
 ```dotenv
-IMAGE_TAG=phase5-<short-commit>
+IMAGE_TAG=phase6-<short-commit>
 PLANNER_ENGINE=journey_graph
 PLANNER_COMPARE_ENGINES=false
 LEGACY_JSON_REPAIR=true
@@ -123,16 +123,17 @@ docker compose \
   up -d --no-deps --no-build --force-recreate worker trip-planner
 ```
 
-代码回滚使用审计可见的 revert，不改写历史。数据库仍在 `20260808_03` 时，回滚版本必须保留
-该 revision 文件，或者跳过旧镜像的 migrate service、只替换 API/Worker；阶段 3 旧镜像中的
-Alembic 不认识 `20260808_03`，不能直接运行完整 `compose up`。代码回滚不会自动删除
-PostgreSQL/Redis volumes。只回滚应用时保留数据卷；确认备份可恢复且明确不再需要阶段 4 来源
-数据后，才可人工执行 Alembic downgrade。不得把 `docker compose down -v` 作为常规回滚命令。
+代码回滚使用审计可见的 revert，不改写历史。数据库仍在 `20260808_04` 时，回滚版本必须保留
+该 revision 文件，或者跳过旧镜像的 migrate service、只替换 API/Worker；阶段 5 旧镜像中的
+Alembic 不认识 `20260808_04`，不能直接运行完整 `compose up`。代码回滚不会自动删除
+PostgreSQL/Redis volumes。只回滚应用时保留数据卷；确认备份可恢复且明确不再需要对应阶段的
+来源数据或审核/版本审计后，才可人工执行 Alembic downgrade。不得把
+`docker compose down -v` 作为常规回滚命令。
 
 ## Migration Rollback
 
-阶段 4 revision `20260808_03` 增加 `source_evidence` 和 `trip_source_links`。应用回滚时可保留
-这些加法表；若明确需要回退到阶段 3 schema：
+阶段 6 revision `20260808_04` 增加持久审核记录、活动版本指针和版本审计字段。应用回滚时优先
+保留这些加法结构；若明确需要回退到阶段 5 schema：
 
 ```bash
 docker compose \
@@ -144,17 +145,19 @@ docker compose \
   --env-file .env.staging \
   -f docker-compose.yaml \
   -f docker-compose.staging.yaml \
-  run --rm migrate alembic -c backend/alembic.ini downgrade 20260808_02
+  run --rm migrate alembic -c backend/alembic.ini downgrade 20260808_03
 ```
 
-该命令会删除全部来源证据和版本关联。执行前必须有已校验 `pg_dump`、维护窗口和人工批准。
-LangGraph checkpoint tables 不由 Alembic revision 管理，默认保留。
+该命令会删除全部审核记录、活动版本指针和版本原因/来源/校验审计字段，但保留阶段 4 来源证据。
+执行前必须有已校验 `pg_dump`、维护窗口和人工批准。LangGraph checkpoint tables 不由 Alembic
+revision 管理，默认保留。若还需回退到阶段 3 schema，再单独把 `20260808_03` 降到
+`20260808_02`；该步骤会删除来源证据和关联。
 
 ## Production Promotion Gate
 
-阶段 5 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
+阶段 6 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
 可重复执行且已在 staging 验证的数据导入方案，并核对任务数、终态数和历史结果。该迁移未完成前，
-不得将阶段 5 栈提升为 production，也不得删除旧 JSON volume。
+不得将阶段 6 栈提升为 production，也不得删除旧 JSON volume。
 
 ## Executed Backup Evidence
 
@@ -191,3 +194,14 @@ LangGraph checkpoint tables 不由 Alembic revision 管理，默认保留。
 - AMap route smoke returned `verified` with a 1,205,561 meter Beijing-to-Shanghai distance
 - Five non-empty sensitive values were absent from route output, API/Worker logs and the task response
 - Full matrix, browser verification and residual risks: `docs/PHASE_5_ACCEPTANCE.md`
+
+## Phase 6 Executed Evidence
+
+- 2026-08-08 pre-deploy backup: `/var/backups/tripstar/20260808T080347Z-phase6-predeploy`
+- Deployed application source: `011a485`; image: `journeyops-app:phase6-011a485`
+- Alembic: `20260808_04`; migration container exit: `0`
+- Initial proposal survived API/Worker restart without creating a version; approval created V1
+- Scoped day-1 replan preserved day 0, approval created V2, and rollback created active V3
+- No-op approval returned `409`; later replan rejection preserved active V3 and the completed result
+- Three configured non-empty sensitive values were absent from task output and API/Worker logs
+- Full matrix, browser verification and residual risks: `docs/PHASE_6_ACCEPTANCE.md`
