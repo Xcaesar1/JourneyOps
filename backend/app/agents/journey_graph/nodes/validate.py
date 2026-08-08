@@ -236,6 +236,14 @@ def _validate_meal_times(day: DayPlanV2) -> list[ValidationIssueV2]:
 def _validate_routes(state: TripState, plan: TripPlanV2) -> list[ValidationIssueV2]:
     request = state["request"]
     route_by_id = {route.estimate_id: route for route in plan.route_matrix}
+    transport_options = plan.transport_options or list(state.get("transport_options", []))
+    intercity_duration_by_route = {
+        option.route_estimate_id: option.estimated_duration_minutes
+        for option in transport_options
+        if option.recommended
+        and option.route_estimate_id is not None
+        and option.estimated_duration_minutes is not None
+    }
     issues: list[ValidationIssueV2] = []
     for day in plan.days:
         transport_minutes = 0
@@ -271,7 +279,11 @@ def _validate_routes(state: TripState, plan: TripPlanV2) -> list[ValidationIssue
                         action="Verify this transfer manually before departure.",
                     )
                 )
-            if route.duration_minutes is not None and item.duration_minutes < route.duration_minutes:
+            expected_duration = intercity_duration_by_route.get(
+                route.estimate_id,
+                route.duration_minutes,
+            )
+            if expected_duration is not None and item.duration_minutes < expected_duration:
                 issues.append(
                     _issue(
                         "route_duration_underallocated",

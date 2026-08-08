@@ -107,6 +107,53 @@ def test_route_validator_detects_obviously_impossible_local_route() -> None:
     assert "impossible_local_route" in _codes(state)
 
 
+def test_intercity_route_uses_selected_transport_duration_not_driving_duration() -> None:
+    state = _state()
+    plan = state["draft_plan"]
+    item = plan.days[0].timeline[0]
+    state["transport_options"] = [
+        option.model_copy(update={"estimated_duration_minutes": item.duration_minutes})
+        if option.recommended and option.route_estimate_id == item.route_estimate_id
+        else option
+        for option in state["transport_options"]
+    ]
+    route = plan.route_matrix[0].model_copy(
+        update={
+            "status": "verified",
+            "duration_minutes": item.duration_minutes + 300,
+        }
+    )
+    state["draft_plan"] = plan.model_copy(
+        update={"route_matrix": [route, *plan.route_matrix[1:]]}
+    )
+
+    assert "route_duration_underallocated" not in _codes(state)
+
+
+def test_intercity_route_detects_time_below_selected_transport_duration() -> None:
+    state = _state()
+    plan = state["draft_plan"]
+    day = plan.days[0]
+    item = day.timeline[0]
+    state["transport_options"] = [
+        option.model_copy(update={"estimated_duration_minutes": item.duration_minutes})
+        if option.recommended and option.route_estimate_id == item.route_estimate_id
+        else option
+        for option in state["transport_options"]
+    ]
+    shortened = item.model_copy(update={"duration_minutes": item.duration_minutes - 1})
+    state["draft_plan"] = plan.model_copy(
+        update={
+            "days": [
+                day.model_copy(update={"timeline": [shortened, *day.timeline[1:]]}),
+                *plan.days[1:],
+            ]
+        }
+    )
+
+    assert "route_duration_underallocated" in _codes(state)
+
+
 def test_budget_validator_detects_arithmetic_and_requested_budget_conflicts() -> None:
     state = _state()
     request_payload = {**TRIP_REQUEST_V2_EXAMPLE, "budget_total": "10"}
