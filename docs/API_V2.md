@@ -1,8 +1,9 @@
 # API v2 Durable Tasks
 
 阶段 2 将 `/api/v2` 从 mock 升级为 PostgreSQL 持久任务 API。阶段 3 在 Worker 内增加可切换的
-JourneyGraph，但不改变客户端契约。API 先提交数据库事务，再投递 Celery；Redis 只承载 broker
-和 Pub/Sub 事件，不是任务事实源。
+JourneyGraph。阶段 4 在 JourneyGraph 输出及 legacy Adapter 中增加来源证据，但不改变任务提交、
+轮询和 WebSocket 契约。API 先提交数据库事务，再投递 Celery；Redis 只承载 broker、Pub/Sub
+事件和有 TTL 的来源缓存，不是任务事实源。
 
 JourneyGraph 原生输出按 `TripPlanV2` 校验并保存在 `trip_versions.native_payload`，客户端 `result`
 继续返回现有前端可消费的 legacy `TripPlanResponse`。Planner engine 由服务端 Feature Flag 选择，
@@ -83,6 +84,21 @@ JourneyGraph 原生输出按 `TripPlanV2` 校验并保存在 `trip_versions.nati
 
 状态集合为 `queued`、`processing`、`retrying`、`cancel_requested`、`cancelled`、
 `completed`、`failed`。WebSocket 首先返回数据库快照，随后返回 Pub/Sub 事件；终态后关闭。
+
+## Source Evidence
+
+成功结果的 `result.data` 增加以下兼容字段：
+
+| Field | Meaning |
+| --- | --- |
+| `source_evidence` | 事实来源数组；关键查询无结果时包含 URL 为 `null` 的 `unknown` 记录 |
+| `research_updated_at` | 本次结果所用证据中最新的抓取时间 |
+| `research_status` | `complete`、`partial` 或 `unavailable` |
+
+每条 `SourceEvidence` 包含 `id`、`title`、`url`、`domain`、`provider`、`claim_type`、
+`claim_text`、`published_at`、`fetched_at`、`freshness_status`、`trust_level` 和 `confidence`。
+服务端只接受 `http`/`https` 来源 URL；前端也会再次过滤可点击协议。模型不能覆盖 Graph
+收集到的证据。
 
 ## Error Contract
 

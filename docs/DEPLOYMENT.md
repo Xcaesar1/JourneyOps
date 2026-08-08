@@ -1,6 +1,6 @@
 # Deployment And Rollback
 
-本文件描述阶段 3 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
+本文件描述阶段 4 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
 Oracle staging，使用独立端口、独立 named volumes 和可回滚的镜像标签。
 
 ## Staging Deploy
@@ -16,18 +16,25 @@ chmod 0600 .env.staging
 只在未跟踪的 `.env.staging` 中填写 Secret。`POSTGRES_PASSWORD` 使用随机、URL-safe 字符；
 不得打印该文件。
 
-阶段 3 部署至少显式设置以下非 Secret flags：
+阶段 4 部署至少显式设置以下非 Secret flags：
 
 ```dotenv
-IMAGE_TAG=phase3-<short-commit>
-PLANNER_ENGINE=legacy
+IMAGE_TAG=phase4-<short-commit>
+PLANNER_ENGINE=journey_graph
 PLANNER_COMPARE_ENGINES=false
 LEGACY_JSON_REPAIR=true
 LANGGRAPH_STRICT_MSGPACK=true
+XHS_ENABLED=false
+BRAVE_SEARCH_BASE_URL=https://api.search.brave.com/res/v1/web/search
+WEB_RESEARCH_TIMEOUT=10
+WEB_RESEARCH_RESULT_COUNT=5
+SOURCE_CACHE_TTL_SECONDS=21600
 ```
 
-先以 legacy 默认值部署。只有 staging 健康、迁移和备份通过后，才可临时切换
-`PLANNER_ENGINE=journey_graph` 做验收。comparison 默认关闭，避免双倍外部调用成本。
+`BRAVE_SEARCH_API_KEY` 是可选 Secret，只能保存在未跟踪的 `.env.staging`。未配置时使用 Noop
+降级并将无来源的关键事实标记为 `unknown`。`WEB_RESEARCH_OFFICIAL_DOMAINS` 可配置逗号分隔的
+官方域名 allowlist。XHS 默认关闭；仅在社区来源已获授权且 Cookie 已安全写入主机环境时启用。
+comparison 默认关闭，避免双倍外部调用成本。
 
 ```bash
 docker compose \
@@ -93,25 +100,30 @@ sudo cat /var/backups/tripstar/<STAMP>/journeyops-staging.pgdump \
 
 ## Code Rollback
 
-阶段 3 使用一组可独立回滚的 Git commits。优先创建审计可见的 revert，不改写历史：
+先用 Feature Flag 做无数据损失的功能回滚：
 
 ```bash
-git status --short --branch
-git revert <BAD_PHASE_3_COMMIT>
+sed -i 's/^PLANNER_ENGINE=.*/PLANNER_ENGINE=legacy/' .env.staging
+sed -i 's/^PLANNER_COMPARE_ENGINES=.*/PLANNER_COMPARE_ENGINES=false/' .env.staging
+sed -i 's/^XHS_ENABLED=.*/XHS_ENABLED=false/' .env.staging
+chmod 0600 .env.staging
 docker compose \
   --env-file .env.staging \
   -f docker-compose.yaml \
   -f docker-compose.staging.yaml \
-  up -d --build
+  up -d --no-deps --no-build --force-recreate worker trip-planner
 ```
 
-代码回滚不会自动删除 PostgreSQL/Redis volumes。只回滚应用时保留数据卷；确认备份可恢复且
-明确不再需要阶段 3 数据后，才可人工执行 Alembic downgrade。不得把 `docker compose down -v`
-作为常规回滚命令。
+代码回滚使用审计可见的 revert，不改写历史。数据库仍在 `20260808_03` 时，回滚版本必须保留
+该 revision 文件，或者跳过旧镜像的 migrate service、只替换 API/Worker；阶段 3 旧镜像中的
+Alembic 不认识 `20260808_03`，不能直接运行完整 `compose up`。代码回滚不会自动删除
+PostgreSQL/Redis volumes。只回滚应用时保留数据卷；确认备份可恢复且明确不再需要阶段 4 来源
+数据后，才可人工执行 Alembic downgrade。不得把 `docker compose down -v` 作为常规回滚命令。
 
 ## Migration Rollback
 
-阶段 3 revision `20260808_02` 只为 `trip_versions` 增加四个兼容列。若必须回退到阶段 2 schema：
+阶段 4 revision `20260808_03` 增加 `source_evidence` 和 `trip_source_links`。应用回滚时可保留
+这些加法表；若明确需要回退到阶段 3 schema：
 
 ```bash
 docker compose \
@@ -123,17 +135,17 @@ docker compose \
   --env-file .env.staging \
   -f docker-compose.yaml \
   -f docker-compose.staging.yaml \
-  run --rm migrate alembic -c backend/alembic.ini downgrade 20260807_01
+  run --rm migrate alembic -c backend/alembic.ini downgrade 20260808_02
 ```
 
-该命令会删除阶段 3 版本元数据列，可能丢失 native payload 和对比证据。执行前必须有已校验
-`pg_dump`、维护窗口和人工批准。LangGraph checkpoint tables 不由 Alembic revision 管理，默认保留。
+该命令会删除全部来源证据和版本关联。执行前必须有已校验 `pg_dump`、维护窗口和人工批准。
+LangGraph checkpoint tables 不由 Alembic revision 管理，默认保留。
 
 ## Production Promotion Gate
 
-阶段 3 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
+阶段 4 仍不读取或迁移 `backend/data/trip_tasks/*.json`。正式切换生产前必须先盘点旧 JSON，制定
 可重复执行且已在 staging 验证的数据导入方案，并核对任务数、终态数和历史结果。该迁移未完成前，
-不得将阶段 3 栈提升为 production，也不得删除旧 JSON volume。
+不得将阶段 4 栈提升为 production，也不得删除旧 JSON volume。
 
 ## Executed Backup Evidence
 
@@ -150,3 +162,12 @@ docker compose \
 - Staging graph task completed with native schema `2.0`, legacy client Adapter and 7 checkpoint rows
 - Worker restored to `PLANNER_ENGINE=legacy`; production `/health/ready` remained ready
 - Full matrix and residual risks: `docs/PHASE_3_ACCEPTANCE.md`
+
+## Phase 4 Executed Evidence
+
+- 2026-08-08 pre-deploy backup: `/var/backups/tripstar/20260808T005836Z-phase4-predeploy`
+- Deployed source: `946cee3`; image: `journeyops-app:phase4-946cee3`
+- Alembic: `20260808_03`; staging and production readiness both remained `200`
+- Real no-Key JourneyGraph task completed with 4 persisted `unknown` evidence records and no task error
+- Real configured XHS call returned `unavailable` through the optional-provider boundary without failing a task
+- Full matrix, browser verification and residual risks: `docs/PHASE_4_ACCEPTANCE.md`

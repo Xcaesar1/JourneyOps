@@ -1,6 +1,6 @@
 # JourneyOps Architecture
 
-## Phase 3 Runtime
+## Phase 4 Runtime
 
 ```mermaid
 flowchart LR
@@ -14,9 +14,14 @@ flowchart LR
     Selector{"Planner engine flags"}
     Legacy["Legacy Trip Planner"]
     Graph["JourneyGraph typed workflow"]
+    Queries["Bounded research queries"]
+    WebResearch["Brave / Noop / Fallback"]
+    SourceCache[("Redis source cache with TTL")]
+    Evidence[("SourceEvidence and version links")]
+    Community["Optional XHS community context"]
     Checkpoints[("PostgreSQL checkpoints")]
     Adapter["TripPlanV2 to legacy Adapter"]
-    Providers["LLM, maps, weather, XHS"]
+    Providers["LLM, maps and weather"]
 
     Client -->|"legacy or v2 POST"| API1
     Client -->|"status query"| API2
@@ -28,10 +33,16 @@ flowchart LR
     Selector --> Legacy
     Selector --> Graph
     Legacy --> Providers
+    Legacy --> Community
     Legacy --> Worker
+    Graph --> Queries
+    Queries --> WebResearch
+    WebResearch <--> SourceCache
+    WebResearch --> Graph
     Graph --> Providers
     Graph <--> Checkpoints
     Graph --> Adapter
+    Graph --> Evidence
     Adapter --> Worker
     Worker -->|"progress + immutable version"| DB
     Worker -->|"best-effort snapshot"| Events
@@ -46,6 +57,8 @@ flowchart LR
 - `trip_tasks` stores execution status, progress, attempts, cancellation and terminal errors.
 - `trip_versions` stores immutable outputs with unique `(trip_id, version)`. Phase 3 adds planner engine,
   primary/comparison role, schema version and optional native `TripPlanV2` payload metadata.
+- `source_evidence` deduplicates source metadata and explicit `unknown` markers. `trip_source_links` binds
+  evidence to an immutable trip version, so a later refresh cannot silently rewrite historical output.
 - LangGraph checkpoint tables store resumable typed graph state by durable task id. Their serializer rejects
   types outside the explicit allowlist when `LANGGRAPH_STRICT_MSGPACK=true`.
 - Redis broker messages and Pub/Sub events may be lost or duplicated; database constraints and Worker
@@ -86,21 +99,29 @@ sequenceDiagram
 
 ## JourneyGraph
 
-The phase 3 graph is deliberately small and recoverable:
+The phase 4 graph adds bounded research before collection while retaining deterministic checkpoints:
 
 ```mermaid
 flowchart LR
     Start([START]) --> Normalize[normalize_request]
-    Normalize --> Collect[collect]
+    Normalize --> Prepare[prepare_research_queries]
+    Prepare --> Research[research_web]
+    Research --> Collect[collect]
     Collect --> Draft[draft]
     Draft --> Validate[validate_stub]
     Validate --> Persist[persist]
     Persist --> End([END])
 ```
 
-`draft` uses provider-native JSON output and validates it directly as `TripPlanV2`. It does not call legacy
-string sanitizers, bracket completion or LLM JSON repair. The Adapter converts the validated native plan to
-the existing `TripPlanResponse` shape while the native payload remains available in `trip_versions`.
+`prepare_research_queries` creates five deterministic queries per destination: opening hours, closures,
+reservations, events and travel tips. The first four are critical. `research_web` records sanitized Provider
+issues and metrics without stopping the graph; unanswered critical queries become explicit `unknown`
+evidence. `draft` validates provider-native JSON as `TripPlanV2`, then replaces any model-provided evidence
+with graph-owned evidence. The Adapter carries the same evidence into the legacy frontend response.
+
+Official trust is assigned only through configured domain allowlists or recognized government suffixes.
+Web evidence is cached in Redis using `SOURCE_CACHE_TTL_SECONDS`; XHS is optional community context and is
+disabled unless both `XHS_ENABLED=true` and a Cookie are configured.
 
 ## Failure Policy
 
@@ -116,6 +137,11 @@ the existing `TripPlanResponse` shape while the native payload remains available
 - Cancellation is immediate for queued work and cooperative for an executing Planner.
 - Shadow comparison errors are redacted and do not fail a successful primary run. A primary failure cancels
   outstanding comparison work.
+- Web research maps authentication, rate-limit, timeout, empty and malformed responses to fixed safe codes.
+  One Provider failure falls through to the next Provider; when none succeeds, planning continues with
+  `unknown` evidence.
+- XHS failures return a language-specific fallback context. Raw Cookie values and upstream exception text do
+  not enter graph state, API responses or logs.
 
 ## Health
 

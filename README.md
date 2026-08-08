@@ -10,10 +10,11 @@
   <img src="https://img.shields.io/badge/FastAPI-0.100+-teal.svg">
 </p>
 
-> JourneyOps 二次开发状态：阶段 3 已引入可恢复 JourneyGraph、PostgreSQL Checkpointer、
-> `TripPlanV2` 原生结构化输出、legacy 前端 Adapter 和双引擎 Feature Flags。旧
-> `/api/trip/*` 契约继续可用。当前架构、验收、部署和回滚说明见
-> `docs/ARCHITECTURE.md`、`docs/PHASE_3_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。
+> JourneyOps 二次开发状态：阶段 4 已增加来源化旅行研究、Brave Search/Noop/Fallback
+> Provider、官方来源排序、Redis TTL 缓存、可选小红书社区来源、`SourceEvidence` 持久化，
+> 以及前端“来源与更新时间”卡片。未配置搜索 Key 时仍会生成计划，并将缺少来源的关键事实
+> 标记为 `unknown`。当前架构、验收、部署和回滚说明见 `docs/ARCHITECTURE.md`、
+> `docs/PHASE_4_ACCEPTANCE.md` 与 `docs/DEPLOYMENT.md`。
 
 <div align="center">
 
