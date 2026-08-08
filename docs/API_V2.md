@@ -15,6 +15,7 @@ JourneyGraph 原生输出按 `TripPlanV2` 校验并保存在 `trip_versions.nati
 | --- | --- | --- |
 | `POST` | `/api/v2/trips` | 创建或返回幂等任务，返回 `202` |
 | `GET` | `/api/v2/trips/tasks/{task_id}` | 从 PostgreSQL 查询任务 |
+| `GET` | `/api/v2/trips/tasks/{task_id}/telemetry` | 查询脱敏 trace、节点、工具和费用遥测 |
 | `POST` | `/api/v2/trips/tasks/{task_id}/cancel` | 取消排队任务或请求协作式取消 |
 | `POST` | `/api/v2/trips/tasks/{task_id}/retry` | 重试失败或已取消任务 |
 | `WS` | `/api/v2/trips/tasks/{task_id}/ws` | 订阅 Redis Pub/Sub 进度 |
@@ -67,6 +68,7 @@ JourneyGraph 原生输出按 `TripPlanV2` 校验并保存在 `trip_versions.nati
 {
   "task_id": "task_1234567890ab",
   "trip_id": "trip_1234567890ab",
+  "trace_id": "trace_1234567890abcdef",
   "status": "queued",
   "stage": "queued",
   "progress": 0,
@@ -82,8 +84,27 @@ JourneyGraph 原生输出按 `TripPlanV2` 校验并保存在 `trip_versions.nati
 }
 ```
 
-状态集合为 `queued`、`processing`、`retrying`、`cancel_requested`、`cancelled`、
-`completed`、`failed`。WebSocket 首先返回数据库快照，随后返回 Pub/Sub 事件；终态后关闭。
+状态集合为 `queued`、`processing`、`retrying`、`awaiting_approval`、`cancel_requested`、
+`cancelled`、`completed`、`rejected`、`failed`。WebSocket 首先返回数据库快照，随后返回 Pub/Sub
+事件；终态后关闭。客户端可传 `X-Trace-ID`；合法值会贯穿 API、任务、Worker、Graph 节点和工具，
+服务端也会在响应 Header 和任务对象中返回该值。未传或格式不合法时服务端生成新值。
+
+## Spend Guardrails
+
+会创建或恢复模型工作的 `POST` 接口执行以下检查：
+
+- `API_ACCESS_CODE_REQUIRED=true` 时必须提供 `X-Access-Code`，错误统一返回 `401`；
+- Redis 固定窗口按访问码哈希或客户端 IP 哈希限流，Redis 故障时返回 `503`，不会无保护放行；
+- 活跃任务数达到 `API_MAX_ACTIVE_TRIP_TASKS` 时返回 `429`；
+- 请求大小、列表数量和列表元素长度有上限；
+- 预计 token 或按运营方单价计算的最坏费用超限时返回 `429`；
+- 明确要求覆盖系统指令或提取 Secret 的输入在落库前返回 `422`。
+
+访问码只从未跟踪的环境变量读取。前端只在 `sessionStorage` 的 `journeyops.api_access_code` 保存当前
+浏览器会话值并添加请求 Header；源码、长期本地存储、日志和遥测均不保存访问码。
+
+不可变版本元数据包含 `model_id`、`prompt_version`、`workflow_version`、`tool_versions` 和
+`usage_summary`。遥测接口最多返回 1000 条按时间排序的事件，不返回 Prompt、请求体或模型输出。
 
 ## Source Evidence
 

@@ -1,6 +1,6 @@
 # Deployment And Rollback
 
-本文件描述阶段 6 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
+本文件描述阶段 7 多服务架构。生产环境在明确批准前不得执行本阶段部署；当前部署目标是
 Oracle staging，使用独立端口、独立 named volumes 和可回滚的镜像标签。
 
 ## Staging Deploy
@@ -16,10 +16,10 @@ chmod 0600 .env.staging
 只在未跟踪的 `.env.staging` 中填写 Secret。`POSTGRES_PASSWORD` 使用随机、URL-safe 字符；
 不得打印该文件。
 
-阶段 6 部署至少显式设置以下非 Secret flags：
+阶段 7 部署至少显式设置以下非 Secret flags：
 
 ```dotenv
-IMAGE_TAG=phase6-<short-commit>
+IMAGE_TAG=phase7-<short-commit>
 PLANNER_ENGINE=journey_graph
 PLANNER_COMPARE_ENGINES=false
 LEGACY_JSON_REPAIR=true
@@ -29,6 +29,14 @@ BRAVE_SEARCH_BASE_URL=https://api.search.brave.com/res/v1/web/search
 WEB_RESEARCH_TIMEOUT=10
 WEB_RESEARCH_RESULT_COUNT=5
 SOURCE_CACHE_TTL_SECONDS=21600
+API_ACCESS_CODE_REQUIRED=false
+API_RATE_LIMIT_ENABLED=true
+API_RATE_LIMIT_REQUESTS=6
+API_RATE_LIMIT_WINDOW_SECONDS=60
+API_MAX_ACTIVE_TRIP_TASKS=4
+API_MAX_REQUEST_BYTES=32768
+LLM_MAX_TOKENS_PER_TRIP=80000
+LLM_MAX_COST_PER_TRIP_USD=2.0
 ```
 
 `BRAVE_SEARCH_API_KEY` 是可选 Secret，只能保存在未跟踪的 `.env.staging`。未配置时使用 Noop
@@ -39,6 +47,10 @@ comparison 默认关闭，避免双倍外部调用成本。
 路线服务 Key、前端地图 Key 和前端安全配置同样只能保存在 `.env.staging` 或受限运行时设置中。
 日志不得记录带查询参数的上游请求 URL。高德路线接口返回的是驾车距离/时长证据；系统生成的
 火车或飞机方案是确定性规划估算，不得标记为实时班次、余票、可售状态或实时票价。
+
+公网 promotion 前必须把 `API_ACCESS_CODE_REQUIRED` 改为 `true`，并在未跟踪环境中生成独立访问码。
+`LLM_INPUT_COST_PER_MILLION_USD` 和 `LLM_OUTPUT_COST_PER_MILLION_USD` 必须按当前供应商账单单位填写；
+代码不硬编码会变化的价格。未填写时 dollar 指标为 `0`，但 token、并发和速率上限仍强制生效。
 
 ```bash
 docker compose \
