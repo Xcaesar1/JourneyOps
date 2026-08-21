@@ -430,13 +430,11 @@ class AmapAttractionDiscoveryProvider:
         preferred_items = [
             item
             for item in items
-            if item.matched_interests
-            or (
-                any(interest in {"nature", "自然风光"} for interest in interests)
-                and item.category.startswith("风景名胜")
-            )
+            if any(interest in {"nature", "自然风光"} for interest in interests)
+            and item.category.startswith("风景名胜")
         ]
-        default_pool = list(dict.fromkeys(item.poi_id for item in preferred_items + items))
+        default_source = preferred_items + items if preferred_items else items
+        default_pool = list(dict.fromkeys(item.poi_id for item in default_source))
         defaults = list(
             dict.fromkeys(required_ids + default_pool)
         )[: max(default_count, len(required_ids))]
