@@ -25,7 +25,6 @@ class RuntimeSettingsPayload(BaseModel):
     vite_amap_web_key: str | None = Field(default=None, description="高德 Web 服务 Key")
     vite_amap_web_js_key: str | None = Field(default=None, description="高德 JS SDK Key")
     google_maps_api_key: str | None = Field(default=None, description="Google Maps API Key")
-    xhs_cookie: str | None = Field(default=None, description="小红书 Cookie")
     openai_api_key: str | None = Field(default=None, description="LLM API Key")
     openai_base_url: str | None = Field(default=None, description="LLM Base URL")
     openai_model: str | None = Field(default=None, description="LLM 模型")

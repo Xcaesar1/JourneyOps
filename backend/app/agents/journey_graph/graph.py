@@ -7,13 +7,17 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from ...services.attraction_discovery import (
+    AttractionDiscoveryProvider,
+    NoopAttractionDiscoveryProvider,
+)
 from ...services.research import NoopWebResearchProvider, WebResearchProvider
 from ...services.routing import NoopRouteEstimateProvider, RouteEstimateProvider
 from .nodes import (
     DraftGenerator,
     build_placeholder_plan,
-    collect,
     enrich_plan,
+    make_collect_node,
     make_draft_node,
     make_human_review_node,
     make_plan_intercity_transport_node,
@@ -45,6 +49,7 @@ def build_journey_graph(
     *,
     draft_generator: DraftGenerator = build_placeholder_plan,
     research_provider: WebResearchProvider | None = None,
+    attraction_provider: AttractionDiscoveryProvider | None = None,
     route_provider: RouteEstimateProvider | None = None,
     checkpointer: Any | None = None,
     interrupt_before: Sequence[str] | None = None,
@@ -52,6 +57,7 @@ def build_journey_graph(
     node_observer: NodeObserver | None = None,
 ):
     configured_research_provider = research_provider or NoopWebResearchProvider()
+    configured_attraction_provider = attraction_provider or NoopAttractionDiscoveryProvider()
     configured_route_provider = route_provider or NoopRouteEstimateProvider()
     builder = StateGraph(TripState)
     builder.add_node(
@@ -70,7 +76,14 @@ def build_journey_graph(
             node_observer,
         ),
     )
-    builder.add_node("collect", _observed_node("collect", collect, node_observer))
+    builder.add_node(
+        "collect",
+        _observed_node(
+            "collect",
+            make_collect_node(configured_attraction_provider),
+            node_observer,
+        ),
+    )
     builder.add_node(
         "plan_intercity_transport",
         _observed_node(
@@ -79,7 +92,9 @@ def build_journey_graph(
             node_observer,
         ),
     )
-    builder.add_node("draft", _observed_node("draft", make_draft_node(draft_generator), node_observer))
+    builder.add_node(
+        "draft", _observed_node("draft", make_draft_node(draft_generator), node_observer)
+    )
     builder.add_node("enrich_plan", _observed_node("enrich_plan", enrich_plan, node_observer))
     builder.add_node(
         "deterministic_validate",

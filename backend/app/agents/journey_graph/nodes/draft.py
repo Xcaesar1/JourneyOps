@@ -6,19 +6,80 @@ from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
-from ....domain.trip_models import BudgetV2, DayPlanV2, TripPlanV2
+from ....domain.attraction_models import AttractionCandidate
+from ....domain.trip_models import AttractionV2, BudgetV2, DayPlanV2, LocationV2, TripPlanV2
 from ..state import TripState
 
 DraftGenerator = Callable[[TripState], TripPlanV2]
+
+
+def _place_key(value: str) -> str:
+    return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
+    """Drop model-invented stops and enrich verified AMap candidates."""
+    if not state.get("metrics", {}).get("poi_candidate_policy_enforced", False):
+        return plan
+    candidates_by_city: dict[str, list[AttractionCandidate]] = {
+        city: [AttractionCandidate.model_validate(item) for item in items]
+        for city, items in state.get("poi_candidates", {}).items()
+    }
+    must_visit = [_place_key(value) for value in state["request"].must_visit]
+    days: list[DayPlanV2] = []
+    for day in plan.days:
+        city_candidates = candidates_by_city.get(day.city, [])
+        by_id = {item.poi_id: item for item in city_candidates}
+        by_name = {_place_key(item.name): item for item in city_candidates}
+        verified: list[AttractionV2] = []
+        for attraction in day.attractions:
+            candidate = by_id.get(attraction.poi_id) if attraction.poi_id else None
+            candidate = candidate or by_name.get(_place_key(attraction.name))
+            attraction_key = _place_key(attraction.name)
+            allowed_must_visit = any(
+                key and (key in attraction_key or attraction_key in key) for key in must_visit
+            )
+            if candidate is None and not allowed_must_visit:
+                continue
+            if candidate is None:
+                verified.append(attraction)
+                continue
+            image = candidate.image
+            verified.append(
+                attraction.model_copy(
+                    update={
+                        "name": candidate.name,
+                        "address": candidate.address,
+                        "location": (
+                            LocationV2(
+                                longitude=candidate.longitude,
+                                latitude=candidate.latitude,
+                            )
+                            if candidate.longitude is not None and candidate.latitude is not None
+                            else attraction.location
+                        ),
+                        "category": candidate.category,
+                        "poi_id": candidate.poi_id,
+                        "rating": candidate.rating,
+                        "image_url": image.url,
+                        "image_source": image.source,
+                        "image_author": image.author,
+                        "image_license": image.license,
+                        "image_source_page": image.source_page,
+                        "image_attribution": image.attribution,
+                        "recommendation_reason": candidate.recommendation_reason,
+                    }
+                )
+            )
+        days.append(day.model_copy(update={"attractions": verified}))
+    return plan.model_copy(update={"days": days})
 
 
 def build_placeholder_plan(state: TripState) -> TripPlanV2:
     """Build a deterministic typed plan until the structured model node is connected."""
     request = state["request"]
     city_by_day = [
-        destination.city
-        for destination in request.destinations
-        for _ in range(destination.days)
+        destination.city for destination in request.destinations for _ in range(destination.days)
     ]
     transport = ", ".join(request.transport_preferences) or "public transit"
     days = [
@@ -46,7 +107,7 @@ def build_placeholder_plan(state: TripState) -> TripPlanV2:
 
 def make_draft_node(generator: DraftGenerator) -> Callable[[TripState], dict[str, Any]]:
     def draft(state: TripState) -> dict[str, Any]:
-        plan = TripPlanV2.model_validate(generator(state))
+        plan = _verified_attractions(state, TripPlanV2.model_validate(generator(state)))
         generation_metrics = getattr(generator, "last_metrics", {})
         request = state["request"]
         evidence = list(state.get("sources", []))

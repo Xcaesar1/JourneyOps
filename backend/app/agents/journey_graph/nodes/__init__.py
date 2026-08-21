@@ -1,6 +1,6 @@
 """Independently testable JourneyGraph nodes."""
 
-from .collect import collect
+from .collect import collect, make_collect_node
 from .draft import DraftGenerator, build_placeholder_plan, make_draft_node
 from .enrich import enrich_plan
 from .human_review import make_human_review_node, reject_plan
@@ -18,6 +18,7 @@ __all__ = [
     "collect",
     "enrich_plan",
     "make_draft_node",
+    "make_collect_node",
     "make_human_review_node",
     "normalize_request",
     "persist",

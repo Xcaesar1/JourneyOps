@@ -10,16 +10,15 @@
     location  = geocode_unified("故宫", "北京")
 """
 
-from typing import Optional, Literal
+from typing import Literal
 
 from ..config import get_settings
-from ..models.schemas import Location
-
 
 MapProvider = Literal["google", "amap"]
 
 # 全局标志位：记录 Google 地理编码是否失败过，避免对每个景点都重复尝试并超时
 _google_geo_failed_flag = False
+
 
 def get_map_provider() -> MapProvider:
     """根据当前运行时配置判断应使用哪个地图供应商。
@@ -53,7 +52,8 @@ def geocode_unified(address: str, city: str, *, address_zh: str = "", address_en
     provider = get_map_provider()
 
     if provider == "google" and not _google_geo_failed_flag:
-        from .google_map_service import get_google_map_service  # noqa: delay import
+        from .google_map_service import get_google_map_service
+
         svc = get_google_map_service()
         if svc:
             # Google 对英文地名更友好，优先使用英文地址
@@ -61,12 +61,24 @@ def geocode_unified(address: str, city: str, *, address_zh: str = "", address_en
             loc = svc.geocode(google_address, city)
             if loc:
                 return {"longitude": loc.longitude, "latitude": loc.latitude}
-        
+
         # 第一次解析失败，标记为全局不可用
         _google_geo_failed_flag = True
         print(f"⚠️ [Dispatcher] Google 地理编码失败 (后续景点采用高德): {address_en or address}")
 
     # 高德兜底 — 高德对中文地名识别更准确，优先使用中文地址
     amap_address = address_zh or address
-    from .xhs_service import _geocode_amap_raw  # noqa: delay import
-    return _geocode_amap_raw(amap_address, city)
+    from .attraction_discovery import AmapAttractionDiscoveryProvider
+
+    settings = get_settings()
+    if not settings.vite_amap_web_key:
+        return {}
+    try:
+        coordinates = AmapAttractionDiscoveryProvider(settings.vite_amap_web_key).geocode(
+            amap_address, city
+        )
+    except Exception:
+        coordinates = None
+    if coordinates is None:
+        return {}
+    return {"longitude": coordinates[0], "latitude": coordinates[1]}

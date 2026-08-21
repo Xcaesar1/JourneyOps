@@ -3,7 +3,6 @@
 from .cache import MemoryResearchCache, NoopResearchCache, RedisResearchCache
 from .community import (
     NoopCommunityResearchProvider,
-    XhsCommunityResearchProvider,
     build_community_research_provider,
 )
 from .contracts import CommunityResearchProvider, ResearchCache, WebResearchProvider
@@ -27,7 +26,6 @@ __all__ = [
     "RedisResearchCache",
     "ResearchCache",
     "WebResearchProvider",
-    "XhsCommunityResearchProvider",
     "build_community_research_provider",
     "build_configured_web_research_provider",
     "build_web_research_provider",

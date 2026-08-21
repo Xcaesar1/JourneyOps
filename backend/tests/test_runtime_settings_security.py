@@ -33,10 +33,12 @@ def test_runtime_settings_get_never_serializes_backend_secrets(monkeypatch) -> N
     serialized = response.text
     assert all(value not in serialized for value in secret_values.values())
     assert response.json()["data"]["llm_configured"] is True
-    assert response.json()["data"]["xhs_configured"] is True
+    assert "xhs_configured" not in response.json()["data"]
 
 
-def test_runtime_settings_exposes_only_domain_restricted_browser_map_credentials(monkeypatch) -> None:
+def test_runtime_settings_exposes_only_domain_restricted_browser_map_credentials(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(settings, "vite_amap_web_js_key", "browser-map-key")
     monkeypatch.setattr(settings, "vite_amap_security_js_code", "browser-security-code")
 

@@ -22,9 +22,9 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# 安装系统依赖及 Node.js(用于执行小红书签名引擎)
+# 安装后端构建与健康检查依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc curl nodejs npm \
+    gcc curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 uv 包管理器
@@ -37,9 +37,8 @@ RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com
 # 安装 gunicorn + uvicorn worker
 RUN uv pip install --system --no-cache gunicorn "uvicorn[standard]" -i https://mirrors.aliyun.com/pypi/simple/
 
-# 复制后端代码并安装 Node.js 依赖
+# 复制后端代码
 COPY backend/ ./backend/
-RUN cd backend && npm install --omit=dev --registry=https://registry.npmjs.org --fetch-retries=5
 
 # 从阶段一复制前端构建产物
 COPY --from=frontend-builder /build/dist ./frontend/dist

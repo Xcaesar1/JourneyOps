@@ -427,7 +427,9 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
             )
         if primary.workflow_status == "awaiting_approval":
             if primary.native_payload is None or primary.review_thread_id is None:
-                raise RuntimeError("Interrupted planner did not provide a reviewable native proposal.")
+                raise RuntimeError(
+                    "Interrupted planner did not provide a reviewable native proposal."
+                )
             with SessionLocal() as session:
                 waiting, _review = record_pending_review(
                     session,
@@ -459,9 +461,7 @@ def _execute_task(self: Any, task_id: str, lock: Any, lock_timeout: int) -> dict
                     current.review_payload = review_public_payload(review)
                 active = get_active_trip_version(session, trip_id)
                 keep_active_version = (
-                    review is not None
-                    and review.workflow_type == "replan"
-                    and active is not None
+                    review is not None and review.workflow_type == "replan" and active is not None
                 )
                 rejected = update_task_state(
                     session,
@@ -654,9 +654,7 @@ async def _run_configured_planners(
     if review_context is not None or not settings.planner_compare_engines:
         return PlannerRunSet(primary=await primary_call)
 
-    comparison_engine: PlannerEngine = (
-        "journey_graph" if primary_engine == "legacy" else "legacy"
-    )
+    comparison_engine: PlannerEngine = "journey_graph" if primary_engine == "legacy" else "legacy"
 
     async def comparison_progress(*_args: Any, **_kwargs: Any) -> None:
         return None
@@ -769,6 +767,10 @@ async def _run_journey_graph_planner(
 
     from ..agents.journey_graph import build_configured_plan_generator, build_journey_graph
     from ..agents.journey_graph.checkpoint import open_postgres_checkpointer
+    from ..services.attraction_discovery import (
+        NoopAttractionDiscoveryProvider,
+        build_configured_attraction_discovery_provider,
+    )
     from ..services.research import NoopWebResearchProvider, build_configured_web_research_provider
     from ..services.routing import (
         NoopRouteEstimateProvider,
@@ -787,6 +789,11 @@ async def _run_journey_graph_planner(
         NoopRouteEstimateProvider()
         if settings.demo_mode
         else build_configured_route_estimate_provider()
+    )
+    attraction_provider = (
+        NoopAttractionDiscoveryProvider()
+        if settings.demo_mode
+        else build_configured_attraction_discovery_provider()
     )
     node_progress = {
         "normalize_request": ("normalize_request", "Normalizing the trip request.", 12),
@@ -822,6 +829,7 @@ async def _run_journey_graph_planner(
             graph = build_journey_graph(
                 draft_generator=draft_generator,
                 research_provider=research_provider,
+                attraction_provider=attraction_provider,
                 route_provider=route_provider,
                 checkpointer=checkpointer,
                 require_human_review=True,
@@ -1027,8 +1035,7 @@ def _to_v2_request(payload: dict[str, Any]) -> TripRequestV2:
 
     legacy = TripRequest.model_validate(payload["request"])
     destinations = [
-        {"city": destination.city, "days": destination.days}
-        for destination in legacy.cities
+        {"city": destination.city, "days": destination.days} for destination in legacy.cities
     ]
     return TripRequestV2(
         origin=legacy.origin or legacy.city,

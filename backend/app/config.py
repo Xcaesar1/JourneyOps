@@ -32,7 +32,9 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # CORS配置 - 使用字符串,在代码中分割
-    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
+    cors_origins: str = (
+        "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000"
+    )
 
     # 高德地图API配置
     vite_amap_web_key: str = ""
@@ -43,7 +45,7 @@ class Settings(BaseSettings):
     google_maps_api_key: str = ""
     google_maps_proxy: str = ""
 
-    # 小红书配置
+    # Deprecated compatibility fields. No runtime path reads or enables them.
     xhs_cookie: str = ""
     xhs_enabled: bool = False
 
@@ -103,7 +105,7 @@ class Settings(BaseSettings):
 
     def get_cors_origins_list(self) -> list[str]:
         """获取CORS origins列表"""
-        return [origin.strip() for origin in self.cors_origins.split(',')]
+        return [origin.strip() for origin in self.cors_origins.split(",")]
 
 
 # 创建全局配置实例
@@ -114,7 +116,6 @@ _RUNTIME_SETTING_KEYS = {
     "vite_amap_web_js_key",
     "google_maps_api_key",
     "google_maps_proxy",
-    "xhs_cookie",
     "openai_api_key",
     "openai_base_url",
     "openai_model",
@@ -185,7 +186,6 @@ def get_runtime_settings() -> dict[str, str | bool]:
         "amap_web_configured": bool(settings.vite_amap_web_key),
         "amap_web_js_configured": bool(settings.vite_amap_web_js_key),
         "google_maps_configured": bool(settings.google_maps_api_key),
-        "xhs_configured": bool(settings.xhs_cookie and settings.xhs_enabled),
         "runtime_secret_updates_enabled": settings.runtime_secret_updates_enabled,
     }
 
@@ -238,7 +238,6 @@ def print_config():
     print(f"高德地图JS Key: {'已配置' if settings.vite_amap_web_js_key else '未配置'}")
     print(f"Google Maps API Key: {'已配置' if settings.google_maps_api_key else '未配置'}")
     print(f"Google Maps Proxy: {settings.google_maps_proxy or '未配置'}")
-    print(f"小红书Cookie: {'已配置' if settings.xhs_cookie else '未配置'}")
     print(f"Demo 模式: {'已启用' if settings.demo_mode else '未启用'}")
 
     # 检查LLM配置
@@ -250,4 +249,3 @@ def print_config():
     print(f"LLM Base URL: {llm_base_url}")
     print(f"LLM Model: {llm_model}")
     print(f"日志级别: {settings.log_level}")
-
