@@ -39,10 +39,10 @@ _INTEREST_QUERIES: dict[str, tuple[str, ...]] = {
 
 _PRIMARY_ATTRACTION_CATEGORIES = {
     "attraction",
-    "体育休闲服务",
     "科教文化服务",
     "风景名胜",
 }
+_LEISURE_INTERESTS = {"leisure", "休闲"}
 _DISTRICT_INTERESTS = {"food", "shopping", "美食", "购物"}
 _DISTRICT_CATEGORIES = {"购物服务", "餐饮服务"}
 _DISTRICT_NAME_MARKERS = ("古城", "夜市", "小镇", "巷", "市场", "广场", "村", "街", "里")
@@ -177,6 +177,8 @@ def _is_discoverable_attraction(
     category_root = item.category.split(";")[0].split("|")[0]
     if category_root in _PRIMARY_ATTRACTION_CATEGORIES:
         return True
+    if category_root == "体育休闲服务":
+        return any(interest in _LEISURE_INTERESTS for interest in interests)
     return (
         category_root in _DISTRICT_CATEGORIES
         and any(interest in _DISTRICT_INTERESTS for interest in interests)
@@ -425,9 +427,19 @@ class AmapAttractionDiscoveryProvider:
         )
         default_count = min(len(items), max(2, min(days * 2, 10)))
         required_ids = [item.poi_id for item in items if item.is_must_visit]
+        preferred_items = [
+            item
+            for item in items
+            if item.matched_interests
+            or (
+                any(interest in {"nature", "自然风光"} for interest in interests)
+                and item.category.startswith("风景名胜")
+            )
+        ]
+        default_pool = list(dict.fromkeys(item.poi_id for item in preferred_items + items))
         defaults = list(
-            dict.fromkeys(required_ids + [item.poi_id for item in items[:default_count]])
-        )
+            dict.fromkeys(required_ids + default_pool)
+        )[: max(default_count, len(required_ids))]
         return AttractionCandidatePage(
             city=normalized_city,
             items=items,

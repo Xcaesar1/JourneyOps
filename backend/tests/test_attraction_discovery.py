@@ -118,6 +118,7 @@ def test_amap_discovery_filters_keyword_noise_and_keeps_explicit_must_visit() ->
                     _poi("A2", "景区游客中心"),
                     _poi("A3", "安特大世界", category="购物服务;专卖店"),
                     _poi("A4", "用户指定咖啡店", category="餐饮服务;咖啡厅"),
+                    _poi("A5", "城市运动馆", category="体育休闲服务;运动场馆"),
                 ],
             },
         )
@@ -129,6 +130,32 @@ def test_amap_discovery_filters_keyword_noise_and_keeps_explicit_must_visit() ->
     page = provider.discover("西安", must_visit=["用户指定咖啡店"], limit=10)
 
     assert [item.name for item in page.items] == ["用户指定咖啡店", "西安城墙"]
+
+
+def test_nature_defaults_prefer_scenic_candidates() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params["page_num"] == "2":
+            return httpx.Response(200, json={"status": "1", "pois": []})
+        return httpx.Response(
+            200,
+            json={
+                "status": "1",
+                "pois": [
+                    _poi("M1", "热门博物馆", category="科教文化服务;博物馆"),
+                    _poi("N1", "西湖", category="风景名胜;风景名胜"),
+                    _poi("N2", "西溪湿地", category="风景名胜;公园广场"),
+                ],
+            },
+        )
+
+    provider = AmapAttractionDiscoveryProvider(
+        "test-key",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    page = provider.discover("杭州", interests=["自然风光"], days=1)
+
+    assert set(page.default_selected_ids) == {"N1", "N2"}
+    assert "M1" not in page.default_selected_ids
 
 
 def test_amap_discovery_uses_city_popularity_queries_before_interest_queries() -> None:
