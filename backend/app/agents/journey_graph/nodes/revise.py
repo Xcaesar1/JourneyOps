@@ -21,6 +21,15 @@ _TRIM_DAY_CODES = {
 }
 
 
+def _place_key(value: str) -> str:
+    return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def _is_must_visit(name: str, must_visit: list[str]) -> bool:
+    key = _place_key(name)
+    return any(term and (term in key or key in term) for term in must_visit)
+
+
 def _next_attraction_name(day: DayPlanV2, transport_item_id: str) -> str | None:
     for index, item in enumerate(day.timeline):
         if item.item_id != transport_item_id:
@@ -44,6 +53,7 @@ def _revise_days(state: TripState, plan: TripPlanV2) -> list[DayPlanV2]:
         for destination in state["request"].destinations
         for _ in range(destination.days)
     ]
+    must_visit = [_place_key(value) for value in state["request"].must_visit]
     revised_days: list[DayPlanV2] = []
     for day in plan.days:
         issues = issues_by_day.get(day.day_index, [])
@@ -60,22 +70,39 @@ def _revise_days(state: TripState, plan: TripPlanV2) -> list[DayPlanV2]:
                     remove_names.add(name)
             if issue.code in _TRIM_DAY_CODES:
                 trim_day = True
-        remaining = [item for item in day.attractions if item.name not in remove_names]
-        if trim_day and remaining:
-            remaining = remaining[:-1]
+        remaining = [
+            item
+            for item in day.attractions
+            if item.name not in remove_names or _is_must_visit(item.name, must_visit)
+        ]
+        if trim_day:
+            removable_index = next(
+                (
+                    index
+                    for index in range(len(remaining) - 1, -1, -1)
+                    if not _is_must_visit(remaining[index].name, must_visit)
+                ),
+                None,
+            )
+            if removable_index is not None:
+                remaining.pop(removable_index)
         city = expected_cities[day.day_index] if day.day_index < len(expected_cities) else day.city
         revised_days.append(day.model_copy(update={"city": city, "attractions": remaining}))
     return revised_days
 
 
-def _reduce_budget(plan: TripPlanV2, days: list[DayPlanV2]) -> list[DayPlanV2]:
+def _reduce_budget(
+    plan: TripPlanV2,
+    days: list[DayPlanV2],
+    must_visit: list[str],
+) -> list[DayPlanV2]:
     if not any(issue.code == "budget_exceeded" for issue in plan.validation_report.issues):
         return days
     candidates = [
         (attraction.ticket_price, day_index, attraction.name)
         for day_index, day in enumerate(days)
         for attraction in day.attractions
-        if attraction.ticket_price > 0
+        if attraction.ticket_price > 0 and not _is_must_visit(attraction.name, must_visit)
     ]
     if candidates:
         _, day_index, name = max(candidates)
@@ -100,7 +127,7 @@ def revise_plan(state: TripState) -> dict[str, Any]:
     plan = state["draft_plan"]
     request = state["request"]
     days = _revise_days(state, plan)
-    days = _reduce_budget(plan, days)
+    days = _reduce_budget(plan, days, [_place_key(value) for value in request.must_visit])
     revision_count = state.get("revision_count", 0) + 1
     revised = plan.model_copy(
         update={

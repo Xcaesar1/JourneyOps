@@ -9,6 +9,7 @@ from backend.app.agents.journey_graph.nodes import (
     enrich_plan,
     make_plan_intercity_transport_node,
     normalize_request,
+    revise_plan,
     validate_plan,
 )
 from backend.app.domain.trip_models import (
@@ -17,6 +18,7 @@ from backend.app.domain.trip_models import (
     BudgetV2,
     LocationV2,
 )
+from backend.app.domain.validation_models import ValidationIssueV2, ValidationReportV2
 from backend.app.services.routing import NoopRouteEstimateProvider
 
 
@@ -209,3 +211,32 @@ def test_intensity_validator_detects_overloaded_balanced_day() -> None:
     state.update(enrich_plan(state))
 
     assert "daily_intensity_excessive" in _codes(state)
+
+
+def test_revision_never_removes_must_visit_when_trimming_an_overloaded_day() -> None:
+    state = _state()
+    plan = state["draft_plan"]
+    day = plan.days[0].model_copy(
+        update={
+            "attractions": [
+                AttractionV2(name="Senso-ji"),
+                AttractionV2(name="Optional stop"),
+            ]
+        }
+    )
+    report = ValidationReportV2(
+        issues=[
+            ValidationIssueV2(
+                code="daily_window_exceeded",
+                severity="critical",
+                day_index=0,
+                message="The day is overloaded.",
+            )
+        ]
+    )
+    state["draft_plan"] = plan.model_copy(update={"days": [day, *plan.days[1:]]})
+    state["validation_report"] = report
+
+    revised = revise_plan(state)["draft_plan"]
+
+    assert [item.name for item in revised.days[0].attractions] == ["Senso-ji"]
