@@ -105,6 +105,49 @@ def test_amap_discovery_prioritizes_must_visit_and_filters_avoid_terms() -> None
     assert all("商业街" not in item.name for item in page.items)
 
 
+def test_amap_discovery_filters_keyword_noise_and_keeps_explicit_must_visit() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params["page_num"] == "2":
+            return httpx.Response(200, json={"status": "1", "pois": []})
+        return httpx.Response(
+            200,
+            json={
+                "status": "1",
+                "pois": [
+                    _poi("A1", "西安城墙"),
+                    _poi("A2", "景区游客中心"),
+                    _poi("A3", "安特大世界", category="购物服务;专卖店"),
+                    _poi("A4", "用户指定咖啡店", category="餐饮服务;咖啡厅"),
+                ],
+            },
+        )
+
+    provider = AmapAttractionDiscoveryProvider(
+        "test-key",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    page = provider.discover("西安", must_visit=["用户指定咖啡店"], limit=10)
+
+    assert [item.name for item in page.items] == ["用户指定咖啡店", "西安城墙"]
+
+
+def test_amap_discovery_uses_city_popularity_queries_before_interest_queries() -> None:
+    keywords: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        keywords.append(request.url.params["keywords"])
+        return httpx.Response(200, json={"status": "1", "pois": []})
+
+    provider = AmapAttractionDiscoveryProvider(
+        "test-key",
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    provider.discover("西安", interests=["历史文化"])
+
+    assert keywords[:2] == ["西安5A景区", "西安必游景点"]
+    assert "西安博物馆" in keywords
+
+
 class _AmapWithPhoto:
     def get_detail(self, _poi_id: str) -> AttractionCandidate:
         return AttractionCandidate(

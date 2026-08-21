@@ -37,6 +37,30 @@ _INTEREST_QUERIES: dict[str, tuple[str, ...]] = {
     "leisure": ("休闲景点", "公园"),
 }
 
+_PRIMARY_ATTRACTION_CATEGORIES = {
+    "attraction",
+    "体育休闲服务",
+    "科教文化服务",
+    "风景名胜",
+}
+_DISTRICT_INTERESTS = {"food", "shopping", "美食", "购物"}
+_DISTRICT_CATEGORIES = {"购物服务", "餐饮服务"}
+_DISTRICT_NAME_MARKERS = ("古城", "夜市", "小镇", "巷", "市场", "广场", "村", "街", "里")
+_FACILITY_NAME_MARKERS = (
+    "停车场",
+    "公交站",
+    "办公区",
+    "卫生间",
+    "商店",
+    "售票处",
+    "地铁站",
+    "文创",
+    "服务区",
+    "游客中心",
+    "管理区",
+    "酒店",
+)
+
 
 class AttractionDiscoveryProvider(Protocol):
     def discover(
@@ -134,6 +158,32 @@ def _matched_interests(item: AttractionCandidate, interests: Sequence[str]) -> l
     return list(dict.fromkeys(matches))
 
 
+def _is_discoverable_attraction(
+    item: AttractionCandidate,
+    *,
+    interests: Sequence[str],
+    must_visit: Sequence[str],
+) -> bool:
+    """Reject AMap keyword-search noise while retaining explicit user choices."""
+    normalized_name = _normalize_name(item.name)
+    if any(
+        _normalize_name(term) in normalized_name or normalized_name in _normalize_name(term)
+        for term in must_visit
+        if term.strip()
+    ):
+        return True
+    if any(marker in item.name for marker in _FACILITY_NAME_MARKERS):
+        return False
+    category_root = item.category.split(";")[0].split("|")[0]
+    if category_root in _PRIMARY_ATTRACTION_CATEGORIES:
+        return True
+    return (
+        category_root in _DISTRICT_CATEGORIES
+        and any(interest in _DISTRICT_INTERESTS for interest in interests)
+        and any(marker in item.name for marker in _DISTRICT_NAME_MARKERS)
+    )
+
+
 def parse_amap_pois(payload: dict[str, Any], city: str) -> list[AttractionCandidate]:
     """Parse one AMap POI 2.0 payload without leaking provider-specific shapes."""
     if str(payload.get("status")) != "1":
@@ -179,6 +229,12 @@ def rank_candidates(
     deduplicated: dict[str, _RawCandidate] = {}
     for raw in raw_candidates:
         if _matches_any(raw.item, avoid):
+            continue
+        if not _is_discoverable_attraction(
+            raw.item,
+            interests=interests,
+            must_visit=must_visit,
+        ):
             continue
         key = _candidate_key(raw.item)
         existing = deduplicated.get(key)
@@ -333,11 +389,12 @@ class AmapAttractionDiscoveryProvider:
         limit: int = 40,
     ) -> AttractionCandidatePage:
         normalized_city = city.strip()
-        query_terms = ["热门景点"]
+        query_terms = [term for term in must_visit if term.strip()][:3]
+        query_terms.extend((f"{normalized_city}5A景区", f"{normalized_city}必游景点"))
         for interest in interests:
-            query_terms.extend(_INTEREST_QUERIES.get(interest, (interest,)))
-        query_terms.extend(term for term in must_visit if term.strip())
-        query_terms = list(dict.fromkeys(term.strip() for term in query_terms if term.strip()))[:6]
+            interest_terms = _INTEREST_QUERIES.get(interest, (interest,))
+            query_terms.extend(f"{normalized_city}{term}" for term in interest_terms)
+        query_terms = list(dict.fromkeys(term.strip() for term in query_terms if term.strip()))[:8]
         raw_candidates: list[_RawCandidate] = []
         issues: list[str] = []
         for query_index, keywords in enumerate(query_terms):
