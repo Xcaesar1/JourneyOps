@@ -60,11 +60,21 @@ def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
         for city, items in state.get("poi_candidates", {}).items()
     }
     must_visit = [_place_key(value) for value in state["request"].must_visit]
+    expected_cities = [
+        destination.city
+        for destination in state["request"].destinations
+        for _ in range(destination.days)
+    ]
     included_poi_ids: set[str] = set()
     visited_cities: set[str] = set()
     days: list[DayPlanV2] = []
     for day in plan.days:
-        city_candidates = candidates_by_city.get(day.city, [])
+        canonical_city = (
+            expected_cities[day.day_index]
+            if 0 <= day.day_index < len(expected_cities)
+            else day.city
+        )
+        city_candidates = candidates_by_city.get(canonical_city, [])
         by_id = {item.poi_id: item for item in city_candidates}
         by_name = {_place_key(item.name): item for item in city_candidates}
         verified: list[AttractionV2] = []
@@ -84,7 +94,7 @@ def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
                 continue
             verified.append(_candidate_attraction(candidate, existing=attraction))
             included_poi_ids.add(candidate.poi_id)
-        if day.city not in visited_cities:
+        if canonical_city not in visited_cities:
             verified.extend(
                 _candidate_attraction(candidate)
                 for candidate in city_candidates
@@ -93,7 +103,7 @@ def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
             included_poi_ids.update(
                 candidate.poi_id for candidate in city_candidates if candidate.is_must_visit
             )
-            visited_cities.add(day.city)
+            visited_cities.add(canonical_city)
         required_ids = {candidate.poi_id for candidate in city_candidates if candidate.is_must_visit}
 
         def is_required(attraction: AttractionV2) -> bool:
@@ -113,7 +123,7 @@ def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
         optional = [attraction for attraction in deduplicated if not is_required(attraction)]
         daily_limit = _DAILY_ATTRACTION_LIMITS[state["request"].pace]
         selected = (required + optional)[: max(daily_limit, len(required))]
-        days.append(day.model_copy(update={"attractions": selected}))
+        days.append(day.model_copy(update={"city": canonical_city, "attractions": selected}))
     return plan.model_copy(update={"days": days})
 
 

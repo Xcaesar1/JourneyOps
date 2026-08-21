@@ -127,9 +127,15 @@ def test_draft_node_restores_selected_candidate_with_coordinates_when_model_omit
         "Kyoto": [],
     }
 
-    plan = make_draft_node(build_placeholder_plan)(state)["draft_plan"]
+    def generator_with_city_alias(_: dict) -> TripPlanV2:
+        plan = build_placeholder_plan(state)
+        first_day = plan.days[0].model_copy(update={"city": "Tokyo Metropolis"})
+        return plan.model_copy(update={"days": [first_day, *plan.days[1:]]})
+
+    plan = make_draft_node(generator_with_city_alias)(state)["draft_plan"]
     attraction = plan.days[0].attractions[0]
 
+    assert plan.days[0].city == "Tokyo"
     assert attraction.name == "Senso-ji"
     assert attraction.poi_id == "tokyo-sensoji"
     assert attraction.location is not None
