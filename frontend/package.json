@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test src/services/attractionSelection.test.mjs src/views/Landing.mobile-layout.test.mjs"
   },
   "dependencies": {
     "@amap/amap-jsapi-loader": "^1.0.1",

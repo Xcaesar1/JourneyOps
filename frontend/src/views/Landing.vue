@@ -447,6 +447,14 @@ import {
   retryTripPlan,
   TripTaskFailure,
 } from '@/services/api'
+import {
+  buildCandidateDiscoveryState,
+  filterCandidateItems,
+  findCandidatePageKey,
+  selectedCandidateNames,
+  toggleCandidateSelection,
+  visibleCandidateItems,
+} from '@/services/attractionSelection'
 import { getCurrentLocale } from '@/i18n'
 import NavBar from '@/components/NavBar.vue'
 import type {
@@ -574,31 +582,23 @@ const candidateCities = computed(() => formData.cities
   .map(item => candidatePages.value[item.city.trim()])
   .filter((page): page is AttractionCandidatePage => Boolean(page)))
 
-const allCandidates = computed(() => candidateCities.value.flatMap(page => page.items))
-const mustVisitNames = computed(() => {
-  const selected = new Set(selectedPoiIds.value)
-  return allCandidates.value
-    .filter(item => selected.has(item.poi_id))
-    .map(item => item.name)
-})
+const mustVisitNames = computed(() => selectedCandidateNames(candidateCities.value, selectedPoiIds.value))
 
 const isCandidateSelected = (poiId: string) => selectedPoiIds.value.includes(poiId)
 
 const toggleCandidate = (poiId: string) => {
-  selectedPoiIds.value = isCandidateSelected(poiId)
-    ? selectedPoiIds.value.filter(id => id !== poiId)
-    : [...selectedPoiIds.value, poiId]
+  selectedPoiIds.value = toggleCandidateSelection(selectedPoiIds.value, poiId)
 }
 
 const cityCandidates = (city: string) => {
-  const page = candidatePages.value[city]
-  const query = (candidateSearch[city] || '').trim().toLocaleLowerCase()
-  if (!page) return []
-  if (!query) return page.items
-  return page.items.filter(item => `${item.name} ${item.category} ${item.address}`.toLocaleLowerCase().includes(query))
+  return filterCandidateItems(candidatePages.value[city], candidateSearch[city] || '')
 }
 
-const visibleCandidates = (city: string) => cityCandidates(city).slice(0, candidateVisible[city] || 8)
+const visibleCandidates = (city: string) => visibleCandidateItems(
+  candidatePages.value[city],
+  candidateSearch[city] || '',
+  candidateVisible[city] || 8,
+)
 const filteredCandidateCount = (city: string) => cityCandidates(city).length
 const selectedCount = (city: string) => {
   const selected = new Set(selectedPoiIds.value)
@@ -613,7 +613,8 @@ const hydrateCandidateImages = async (pages: AttractionCandidatePage[]) => {
     while (index < pending.length) {
       const candidate = pending[index++]
       const resolved = await resolveAttractionImage(candidate)
-      const page = candidatePages.value[candidate.city]
+      const pageKey = findCandidatePageKey(candidatePages.value, candidate.poi_id)
+      const page = pageKey ? candidatePages.value[pageKey] : undefined
       if (!page) continue
       page.items = page.items.map(item => item.poi_id === resolved.poi_id ? resolved : item)
     }
@@ -632,22 +633,16 @@ const discoverAttractions = async () => {
     const results = await Promise.allSettled(
       cities.map(item => getAttractionCandidates(item.city.trim(), item.days || 1, formData.preferences))
     )
-    const pages: Record<string, AttractionCandidatePage> = {}
-    const defaults: string[] = []
-    results.forEach((result, index) => {
+    const discovery = buildCandidateDiscoveryState(cities, results)
+    results.forEach((_result, index) => {
       const city = cities[index].city.trim()
-      const page = result.status === 'fulfilled'
-        ? result.value
-        : { city, items: [], total: 0, default_selected_ids: [], degraded: true, issues: ['request_failed'] }
-      pages[city] = page
       candidateSearch[city] = ''
       candidateVisible[city] = 8
-      defaults.push(...page.default_selected_ids)
     })
-    candidatePages.value = pages
-    selectedPoiIds.value = Array.from(new Set(defaults))
+    candidatePages.value = discovery.pages
+    selectedPoiIds.value = discovery.selectedPoiIds
     discoverySignature.value = currentDiscoverySignature.value
-    void hydrateCandidateImages(Object.values(pages))
+    void hydrateCandidateImages(Object.values(discovery.pages))
     return true
   } finally {
     discoveryLoading.value = false
