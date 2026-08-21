@@ -11,6 +11,7 @@ from ....domain.trip_models import AttractionV2, BudgetV2, DayPlanV2, LocationV2
 from ..state import TripState
 
 DraftGenerator = Callable[[TripState], TripPlanV2]
+_DAILY_ATTRACTION_LIMITS = {"relaxed": 3, "balanced": 5, "intensive": 7}
 
 
 def _place_key(value: str) -> str:
@@ -79,6 +80,8 @@ def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
             if candidate is None:
                 verified.append(attraction)
                 continue
+            if candidate.poi_id in included_poi_ids:
+                continue
             verified.append(_candidate_attraction(candidate, existing=attraction))
             included_poi_ids.add(candidate.poi_id)
         if day.city not in visited_cities:
@@ -91,7 +94,26 @@ def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
                 candidate.poi_id for candidate in city_candidates if candidate.is_must_visit
             )
             visited_cities.add(day.city)
-        days.append(day.model_copy(update={"attractions": verified}))
+        required_ids = {candidate.poi_id for candidate in city_candidates if candidate.is_must_visit}
+
+        def is_required(attraction: AttractionV2) -> bool:
+            attraction_key = _place_key(attraction.name)
+            return attraction.poi_id in required_ids or any(
+                key and (key in attraction_key or attraction_key in key) for key in must_visit
+            )
+
+        deduplicated: list[AttractionV2] = []
+        seen: set[str] = set()
+        for attraction in verified:
+            key = attraction.poi_id or _place_key(attraction.name)
+            if key and key not in seen:
+                seen.add(key)
+                deduplicated.append(attraction)
+        required = [attraction for attraction in deduplicated if is_required(attraction)]
+        optional = [attraction for attraction in deduplicated if not is_required(attraction)]
+        daily_limit = _DAILY_ATTRACTION_LIMITS[state["request"].pace]
+        selected = (required + optional)[: max(daily_limit, len(required))]
+        days.append(day.model_copy(update={"attractions": selected}))
     return plan.model_copy(update={"days": days})
 
 

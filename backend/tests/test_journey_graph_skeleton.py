@@ -17,6 +17,7 @@ from backend.app.agents.journey_graph.nodes import (
 )
 from backend.app.domain.trip_models import (
     TRIP_REQUEST_V2_EXAMPLE,
+    AttractionV2,
     TripPlanV2,
     TripRequestV2,
 )
@@ -134,6 +135,46 @@ def test_draft_node_restores_selected_candidate_with_coordinates_when_model_omit
     assert attraction.location is not None
     assert attraction.location.longitude == 139.7967
     assert attraction.image_source == "amap"
+
+
+def test_draft_node_caps_one_day_candidates_and_keeps_must_visit_first() -> None:
+    state = _normalized_state()
+    state.update(make_plan_intercity_transport_node(NoopRouteEstimateProvider())(state))
+    state["metrics"] = {**state["metrics"], "poi_candidate_policy_enforced": True}
+    candidates = [
+        {
+            "poi_id": f"tokyo-{index}",
+            "name": "Senso-ji" if index == 0 else f"Tokyo attraction {index}",
+            "city": "Tokyo",
+            "address": "Tokyo",
+            "longitude": 139.7 + index / 100,
+            "latitude": 35.6 + index / 100,
+            "category": "attraction",
+            "rating": 4.5,
+            "image": {"url": "", "source": "placeholder"},
+            "recommendation_score": 90 - index,
+            "recommendation_reason": "Verified POI",
+            "matched_interests": [],
+            "is_must_visit": index == 0,
+        }
+        for index in range(8)
+    ]
+    state["poi_candidates"] = {"Tokyo": candidates, "Kyoto": []}
+
+    def crowded_generator(_: dict) -> TripPlanV2:
+        plan = build_placeholder_plan(state)
+        first_day = plan.days[0].model_copy(
+            update={
+                "attractions": [AttractionV2(name=candidate["name"]) for candidate in candidates]
+            }
+        )
+        return plan.model_copy(update={"days": [first_day, *plan.days[1:]]})
+
+    plan = make_draft_node(crowded_generator)(state)["draft_plan"]
+
+    assert len(plan.days[0].attractions) == 5
+    assert plan.days[0].attractions[0].name == "Senso-ji"
+    assert all(attraction.location is not None for attraction in plan.days[0].attractions)
 
 
 def test_validate_stub_node_returns_typed_report() -> None:
