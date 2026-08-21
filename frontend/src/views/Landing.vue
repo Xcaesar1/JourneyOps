@@ -200,9 +200,93 @@
             </a-form-item>
           </div>
 
+          <div class="step attraction-discovery-step">
+            <div class="discovery-heading">
+              <div>
+                <div class="step-head">
+                  <span>03</span>
+                  <h3>{{ t('home.discovery.title') }}</h3>
+                </div>
+                <p>{{ t('home.discovery.description') }}</p>
+              </div>
+              <button
+                type="button"
+                class="discovery-load-btn"
+                :disabled="discoveryLoading || loading"
+                @click="discoverAttractions"
+              >
+                {{ discoveryLoading ? t('home.discovery.loading') : t('home.discovery.load') }}
+              </button>
+            </div>
+
+            <div v-if="candidateCities.length" class="candidate-city-list">
+              <section v-for="page in candidateCities" :key="page.city" class="candidate-city-section">
+                <div class="candidate-city-head">
+                  <div>
+                    <strong>{{ page.city }}</strong>
+                    <span>{{ t('home.discovery.selected', { count: selectedCount(page.city) }) }}</span>
+                  </div>
+                  <a-input
+                    v-model:value="candidateSearch[page.city]"
+                    :placeholder="t('home.discovery.search')"
+                    allow-clear
+                    class="candidate-search"
+                  />
+                </div>
+                <div v-if="visibleCandidates(page.city).length" class="candidate-grid">
+                  <button
+                    v-for="candidate in visibleCandidates(page.city)"
+                    :key="candidate.poi_id"
+                    type="button"
+                    class="candidate-card"
+                    :class="{ selected: isCandidateSelected(candidate.poi_id) }"
+                    :aria-pressed="isCandidateSelected(candidate.poi_id)"
+                    @click="toggleCandidate(candidate.poi_id)"
+                  >
+                    <div class="candidate-image-wrap">
+                      <img
+                        v-if="candidate.image.url"
+                        :src="candidate.image.url"
+                        :alt="candidate.name"
+                        loading="lazy"
+                        referrerpolicy="no-referrer"
+                      />
+                      <span v-else>{{ t('home.discovery.noImage') }}</span>
+                      <i>{{ isCandidateSelected(candidate.poi_id) ? '✓' : '+' }}</i>
+                    </div>
+                    <div class="candidate-copy">
+                      <div>
+                        <strong>{{ candidate.name }}</strong>
+                        <span v-if="candidate.rating">{{ candidate.rating.toFixed(1) }}</span>
+                      </div>
+                      <p>{{ candidate.recommendation_reason }}</p>
+                      <small>{{ candidate.category }}</small>
+                      <a
+                        v-if="candidate.image.source_page && candidate.image.attribution"
+                        :href="candidate.image.source_page"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click.stop
+                      >{{ candidate.image.attribution }}</a>
+                    </div>
+                  </button>
+                </div>
+                <div v-else class="candidate-empty">
+                  {{ page.degraded ? t('home.discovery.failed') : t('home.discovery.empty') }}
+                </div>
+                <button
+                  v-if="filteredCandidateCount(page.city) > (candidateVisible[page.city] || 8)"
+                  type="button"
+                  class="candidate-more"
+                  @click="candidateVisible[page.city] = (candidateVisible[page.city] || 8) + 8"
+                >{{ t('home.discovery.more') }}</button>
+              </section>
+            </div>
+          </div>
+
           <div class="step">
             <div class="step-head">
-              <span>03</span>
+              <span>04</span>
               <h3>{{ t('home.step3') }}</h3>
             </div>
             <a-form-item name="free_text_input">
@@ -355,10 +439,24 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { message } from 'ant-design-vue'
-import { generateTripPlan, getTripHistory, retryTripPlan, TripTaskFailure } from '@/services/api'
+import {
+  generateTripPlan,
+  getAttractionCandidates,
+  getTripHistory,
+  resolveAttractionImage,
+  retryTripPlan,
+  TripTaskFailure,
+} from '@/services/api'
 import { getCurrentLocale } from '@/i18n'
 import NavBar from '@/components/NavBar.vue'
-import type { TripFormData, TripTaskEvent, TripHistoryItem, CityStay, TripPlanResponse } from '@/types'
+import type {
+  AttractionCandidatePage,
+  TripFormData,
+  TripTaskEvent,
+  TripHistoryItem,
+  CityStay,
+  TripPlanResponse,
+} from '@/types'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 
@@ -401,6 +499,12 @@ const historyLoading = ref(false)
 const historyPlans = ref<TripHistoryItem[]>([])
 const loadingEvents = ref<Array<{ stage: string; progress: number; message: string }>>([])
 const failedTask = ref<FailedTask | null>(null)
+const discoveryLoading = ref(false)
+const candidatePages = ref<Record<string, AttractionCandidatePage>>({})
+const selectedPoiIds = ref<string[]>([])
+const candidateSearch = reactive<Record<string, string>>({})
+const candidateVisible = reactive<Record<string, number>>({})
+const discoverySignature = ref('')
 
 const getStageStatusText = (stage: TripTaskEvent['stage']) => {
   if (stage === 'submitted' || stage === 'initializing') return t('home.loading.initializing')
@@ -458,6 +562,97 @@ const computedEndDate = computed(() => {
   if (!formData.start_date) return null
   return formData.start_date.add(totalDays.value - 1, 'day')
 })
+
+const currentDiscoverySignature = computed(() => JSON.stringify({
+  cities: formData.cities
+    .filter(item => item.city.trim())
+    .map(item => ({ city: item.city.trim(), days: item.days || 1 })),
+  interests: [...formData.preferences].sort(),
+}))
+
+const candidateCities = computed(() => formData.cities
+  .map(item => candidatePages.value[item.city.trim()])
+  .filter((page): page is AttractionCandidatePage => Boolean(page)))
+
+const allCandidates = computed(() => candidateCities.value.flatMap(page => page.items))
+const mustVisitNames = computed(() => {
+  const selected = new Set(selectedPoiIds.value)
+  return allCandidates.value
+    .filter(item => selected.has(item.poi_id))
+    .map(item => item.name)
+})
+
+const isCandidateSelected = (poiId: string) => selectedPoiIds.value.includes(poiId)
+
+const toggleCandidate = (poiId: string) => {
+  selectedPoiIds.value = isCandidateSelected(poiId)
+    ? selectedPoiIds.value.filter(id => id !== poiId)
+    : [...selectedPoiIds.value, poiId]
+}
+
+const cityCandidates = (city: string) => {
+  const page = candidatePages.value[city]
+  const query = (candidateSearch[city] || '').trim().toLocaleLowerCase()
+  if (!page) return []
+  if (!query) return page.items
+  return page.items.filter(item => `${item.name} ${item.category} ${item.address}`.toLocaleLowerCase().includes(query))
+}
+
+const visibleCandidates = (city: string) => cityCandidates(city).slice(0, candidateVisible[city] || 8)
+const filteredCandidateCount = (city: string) => cityCandidates(city).length
+const selectedCount = (city: string) => {
+  const selected = new Set(selectedPoiIds.value)
+  return (candidatePages.value[city]?.items || []).filter(item => selected.has(item.poi_id)).length
+}
+
+const hydrateCandidateImages = async (pages: AttractionCandidatePage[]) => {
+  const pending = pages.flatMap(page => page.items.slice(0, 12).filter(item => !item.image.url))
+  const concurrency = 4
+  let index = 0
+  const worker = async () => {
+    while (index < pending.length) {
+      const candidate = pending[index++]
+      const resolved = await resolveAttractionImage(candidate)
+      const page = candidatePages.value[candidate.city]
+      if (!page) continue
+      page.items = page.items.map(item => item.poi_id === resolved.poi_id ? resolved : item)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker))
+}
+
+const discoverAttractions = async () => {
+  const cities = formData.cities.filter(item => item.city.trim())
+  if (!cities.length) {
+    message.error(t('home.atLeastOneCity'))
+    return false
+  }
+  discoveryLoading.value = true
+  try {
+    const results = await Promise.allSettled(
+      cities.map(item => getAttractionCandidates(item.city.trim(), item.days || 1, formData.preferences))
+    )
+    const pages: Record<string, AttractionCandidatePage> = {}
+    const defaults: string[] = []
+    results.forEach((result, index) => {
+      const city = cities[index].city.trim()
+      const page = result.status === 'fulfilled'
+        ? result.value
+        : { city, items: [], total: 0, default_selected_ids: [], degraded: true, issues: ['request_failed'] }
+      pages[city] = page
+      candidateSearch[city] = ''
+      candidateVisible[city] = 8
+      defaults.push(...page.default_selected_ids)
+    })
+    candidatePages.value = pages
+    selectedPoiIds.value = Array.from(new Set(defaults))
+    discoverySignature.value = currentDiscoverySignature.value
+    void hydrateCandidateImages(Object.values(pages))
+    return true
+  } finally {
+    discoveryLoading.value = false
+  }
+}
 
 const addCity = () => {
   if (formData.cities.length >= 5) return
@@ -666,6 +861,12 @@ const handleSubmit = async () => {
     return
   }
 
+  if (discoverySignature.value !== currentDiscoverySignature.value) {
+    await discoverAttractions()
+    message.info(t('home.discovery.reviewBeforePlan'))
+    return
+  }
+
   startTaskUi()
   planCode.value = ''
 
@@ -690,6 +891,7 @@ const handleSubmit = async () => {
       transportation: formData.transportation,
       accommodation: formData.accommodation,
       preferences: formData.preferences,
+      must_visit: mustVisitNames.value,
       free_text_input: formData.free_text_input,
       language: getCurrentLocale(),
       budget_total: formData.budget_total,
@@ -1259,6 +1461,201 @@ const handleRetry = async () => {
   border-color: rgba(215, 110, 66, 1);
 }
 
+.attraction-discovery-step {
+  margin: 18px 0 22px;
+  padding: 18px;
+  border: 1px solid rgba(215, 110, 66, 0.3);
+  border-radius: 16px;
+  background: rgba(7, 17, 24, 0.42);
+}
+
+.discovery-heading,
+.candidate-city-head,
+.candidate-city-head > div,
+.candidate-copy > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.discovery-heading > div > p {
+  margin: -2px 0 0;
+  color: rgba(228, 236, 245, 0.58);
+  font-size: 12px;
+}
+
+.discovery-load-btn,
+.candidate-more {
+  flex: 0 0 auto;
+  border: 1px solid rgba(215, 110, 66, 0.55);
+  border-radius: 10px;
+  background: rgba(215, 110, 66, 0.16);
+  color: #f8d8c9;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.discovery-load-btn:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.candidate-city-list {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.candidate-city-section {
+  padding-top: 15px;
+  border-top: 1px solid rgba(236, 243, 250, 0.12);
+}
+
+.candidate-city-head {
+  margin-bottom: 12px;
+}
+
+.candidate-city-head > div {
+  justify-content: flex-start;
+}
+
+.candidate-city-head strong {
+  color: #f4f8fc;
+  font-size: 15px;
+}
+
+.candidate-city-head span {
+  color: #e79a78;
+  font-size: 12px;
+}
+
+.candidate-search {
+  width: min(300px, 42%);
+}
+
+.candidate-search :deep(.ant-input),
+.candidate-search :deep(.ant-input-affix-wrapper) {
+  background: rgba(14, 27, 38, 0.72) !important;
+  border-color: rgba(236, 243, 250, 0.18) !important;
+  color: #ecf3fa !important;
+}
+
+.candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.candidate-card {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid rgba(236, 243, 250, 0.14);
+  border-radius: 13px;
+  background: rgba(14, 27, 38, 0.72);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s, background 0.2s;
+}
+
+.candidate-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(236, 243, 250, 0.34);
+}
+
+.candidate-card.selected {
+  border-color: rgba(215, 110, 66, 0.9);
+  background: rgba(69, 38, 28, 0.72);
+}
+
+.candidate-image-wrap {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1b2b36, #0c151c);
+  color: rgba(236, 243, 250, 0.42);
+  font-size: 12px;
+}
+
+.candidate-image-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.candidate-image-wrap i {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(5, 13, 19, 0.8);
+  color: #fff;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.candidate-card.selected .candidate-image-wrap i {
+  background: #d76e42;
+}
+
+.candidate-copy {
+  padding: 10px;
+}
+
+.candidate-copy strong {
+  overflow: hidden;
+  color: #f4f8fc;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.candidate-copy > div > span {
+  color: #f4b08d;
+  font-size: 12px;
+}
+
+.candidate-copy p,
+.candidate-copy small,
+.candidate-copy a {
+  display: block;
+  overflow: hidden;
+  margin: 5px 0 0;
+  color: rgba(228, 236, 245, 0.58);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.candidate-copy a {
+  color: rgba(231, 154, 120, 0.78);
+}
+
+.candidate-empty {
+  padding: 28px 12px;
+  border: 1px dashed rgba(236, 243, 250, 0.16);
+  border-radius: 12px;
+  color: rgba(228, 236, 245, 0.54);
+  text-align: center;
+  font-size: 12px;
+}
+
+.candidate-more {
+  display: block;
+  margin: 12px auto 0;
+  background: transparent;
+}
+
 .submit-btn {
   width: 100%;
   min-height: 48px;
@@ -1532,6 +1929,10 @@ const handleRetry = async () => {
   .interest-group {
     grid-template-columns: repeat(3, 1fr);
   }
+
+  .candidate-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 991px) {
@@ -1571,6 +1972,25 @@ const handleRetry = async () => {
 
   .interest-group {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .attraction-discovery-step {
+    padding: 13px;
+  }
+
+  .discovery-heading,
+  .candidate-city-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .discovery-load-btn,
+  .candidate-search {
+    width: 100%;
+  }
+
+  .candidate-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 </style>

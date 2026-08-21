@@ -736,6 +736,13 @@
                           ¥{{ item.ticket_price }}
                         </div>
                       </div>
+                      <a
+                        v-if="getAttractionAttribution(item)"
+                        class="attraction-attribution"
+                        :href="getAttractionSourcePage(item) || undefined"
+                        :target="getAttractionSourcePage(item) ? '_blank' : undefined"
+                        rel="noopener noreferrer"
+                      >{{ getAttractionAttribution(item) }}</a>
 
                       <!-- 编辑模式下可编辑的字段 -->
                       <div v-if="editMode">
@@ -1052,6 +1059,10 @@ const replanForm = reactive<ReplanRequest>({
 const editMode = ref(false)
 const originalPlan = ref<TripPlan | null>(null)
 const attractionPhotos = ref<Record<string, string>>({})
+const attractionPhotoMetadata = ref<Record<string, {
+  attribution: string
+  source_page: string
+}>>({})
 const activeSection = ref('overview')
 const activeDays = ref<number[]>([0]) // 默认展开第一天
 const activeOverviewCard = ref(1)
@@ -2525,31 +2536,38 @@ const loadAttractionPhotos = async () => {
   if (!tripPlan.value) return
 
   const apiBase = getRuntimeApiBaseUrl()
-  const city = tripPlan.value.city
-  const uniqueNames = Array.from(
-    new Set(
-      tripPlan.value.days.flatMap((day) => day.attractions.map((attraction) => attraction.name))
-    )
-  ).filter((name) => name && !attractionPhotos.value[name])
+  const uniqueAttractions = Array.from(
+    new Map(
+      tripPlan.value.days.flatMap((day) => day.attractions.map((attraction) => [
+        attraction.poi_id || `${day.city}:${attraction.name}`,
+        { attraction, city: day.city },
+      ] as const))
+    ).values()
+  ).filter(({ attraction }) => attraction.name && !attraction.image_url && !attractionPhotos.value[attraction.name])
 
-  if (uniqueNames.length === 0) return
+  if (uniqueAttractions.length === 0) return
 
   const concurrencyLimit = 4
   let currentIndex = 0
 
   const loadNextPhoto = async () => {
-    while (currentIndex < uniqueNames.length) {
+    while (currentIndex < uniqueAttractions.length) {
       const index = currentIndex
       currentIndex += 1
-      const name = uniqueNames[index]
+      const { attraction, city } = uniqueAttractions[index]
+      const name = attraction.name
 
       try {
         const response = await fetch(
-          `${apiBase}/api/poi/photo?name=${encodeURIComponent(name)}&city=${encodeURIComponent(city)}`
+          `${apiBase}/api/poi/photo?name=${encodeURIComponent(name)}&city=${encodeURIComponent(city || '')}&poi_id=${encodeURIComponent(attraction.poi_id || '')}`
         )
         const data = await response.json()
         if (data.success && data.data.photo_url) {
           attractionPhotos.value[name] = data.data.photo_url
+        }
+        attractionPhotoMetadata.value[name] = {
+          attribution: data.data.attribution || '',
+          source_page: data.data.source_page || '',
         }
       } catch (err) {
         console.error(`获取${name}图片失败:`, err)
@@ -2558,11 +2576,19 @@ const loadAttractionPhotos = async () => {
   }
 
   const workers = Array.from(
-    { length: Math.min(concurrencyLimit, uniqueNames.length) },
+    { length: Math.min(concurrencyLimit, uniqueAttractions.length) },
     () => loadNextPhoto()
   )
   await Promise.all(workers)
 }
+
+const getAttractionAttribution = (item: Attraction): string => (
+  item.image_attribution || attractionPhotoMetadata.value[item.name]?.attribution || ''
+)
+
+const getAttractionSourcePage = (item: Attraction): string => (
+  item.image_source_page || attractionPhotoMetadata.value[item.name]?.source_page || ''
+)
 
 // 获取景点图片
 const getAttractionImage = (name: string, _index: number): string => {
@@ -3926,6 +3952,20 @@ const drawRoutes = async (AMap: any, attractions: any[]): Promise<any[]> => {
 
 .attraction-image-wrapper:hover .attraction-image {
   transform: scale(1.08);
+}
+
+.attraction-attribution {
+  display: block;
+  margin: 6px 0 10px;
+  color: rgba(66, 92, 112, 0.72);
+  font-size: 11px;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.attraction-attribution:hover {
+  color: #b75e37;
+  text-decoration: underline;
 }
 
 .attraction-badge {

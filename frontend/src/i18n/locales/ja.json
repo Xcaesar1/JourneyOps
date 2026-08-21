@@ -30,7 +30,8 @@
     "submitTripPlanFailed": "旅行プランの送信に失敗しました",
     "queryTaskStatusFailed": "タスク状態の取得に失敗しました",
     "generateTripPlanFailed": "旅行プランの生成に失敗しました",
-    "healthCheckFailed": "ヘルスチェックに失敗しました"
+    "healthCheckFailed": "ヘルスチェックに失敗しました",
+    "attractionCandidatesFailed": "人気スポットの読み込みに失敗しました"
   },
   "settings": {
     "open": "設定を開く",
@@ -45,16 +46,14 @@
       "googleMapsProxy": "Google Maps プロキシ",
       "openaiBaseUrl": "OpenAI 格式 Base URL",
       "openaiModel": "OpenAI 格式 Model",
-      "openaiApiKey": "OpenAI 格式 API Key",
-      "xhsCookie": "小紅書 Cookie"
+      "openaiApiKey": "OpenAI 格式 API Key"
     },
     "placeholders": {
       "apiBaseUrl": "例: http://localhost:8000",
       "googleMapsApiKey": "設定時は Google Maps を使用。空の場合は AMap。",
       "googleMapsProxy": "例: http://127.0.0.1:7890 または socks5://127.0.0.1:1080",
       "openaiBaseUrl": "例: https://api.openai.com/v1",
-      "openaiModel": "例: gpt-4o-mini",
-      "xhsCookie": "Cookie 文字列を貼り付け"
+      "openaiModel": "例: gpt-4o-mini"
     },
     "runtime": {
       "title": "サービス稼働状況",
@@ -141,6 +140,20 @@
       "shopping": "ショッピング",
       "art": "アート",
       "leisure": "リラックス"
+    },
+    "discovery": {
+      "title": "ルート作成前にスポットを選択",
+      "description": "高徳地図の人気度、評価、興味、カテゴリの多様性から推薦します。",
+      "load": "人気スポットを探す",
+      "loading": "スポットを検索中…",
+      "search": "この都市の候補を検索",
+      "selected": "{count} 件選択中",
+      "more": "さらに表示",
+      "empty": "該当するスポットがありません。都市や興味を変更して再試行してください。",
+      "failed": "この都市の候補を取得できませんでした。他の都市には影響しません。",
+      "noImage": "画像なし",
+      "reviewBeforePlan": "候補を読み込みました。選択を確認してから再度計画を開始してください。",
+      "refreshNeeded": "都市または興味が変更されました。候補を再取得してください。"
     },
     "specialNeedsPlaceholder": "特別な要望を入力してください（例：高齢者同行、日の出を見たい、花粉アレルギーなど）",
     "submit": "旅程を作成する",

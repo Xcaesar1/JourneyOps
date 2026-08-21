@@ -30,7 +30,8 @@
     "submitTripPlanFailed": "Failed to submit trip plan",
     "queryTaskStatusFailed": "Failed to query task status",
     "generateTripPlanFailed": "Failed to generate trip plan",
-    "healthCheckFailed": "Health check failed"
+    "healthCheckFailed": "Health check failed",
+    "attractionCandidatesFailed": "Failed to load popular attractions"
   },
   "settings": {
     "open": "Open Settings",
@@ -45,16 +46,14 @@
       "googleMapsProxy": "Google Maps Proxy",
       "openaiBaseUrl": "OpenAI-Compatible Base URL",
       "openaiModel": "OpenAI-Compatible Model",
-      "openaiApiKey": "OpenAI-Compatible API Key",
-      "xhsCookie": "Xiaohongshu Cookie"
+      "openaiApiKey": "OpenAI-Compatible API Key"
     },
     "placeholders": {
       "apiBaseUrl": "e.g. http://localhost:8000",
       "googleMapsApiKey": "When set, Google Maps is used. Leave empty for AMap.",
       "googleMapsProxy": "e.g. http://127.0.0.1:7890 or socks5://127.0.0.1:1080",
       "openaiBaseUrl": "e.g. https://api.openai.com/v1",
-      "openaiModel": "e.g. gpt-4o-mini",
-      "xhsCookie": "Paste full cookie string"
+      "openaiModel": "e.g. gpt-4o-mini"
     },
     "runtime": {
       "title": "Service status",
@@ -141,6 +140,20 @@
       "shopping": "Shopping",
       "art": "Art",
       "leisure": "Leisure"
+    },
+    "discovery": {
+      "title": "Choose attractions before planning",
+      "description": "Recommendations use AMap popularity, ratings, interests, and category diversity.",
+      "load": "Discover popular attractions",
+      "loading": "Discovering attractions…",
+      "search": "Search candidates in this city",
+      "selected": "{count} selected",
+      "more": "Show more",
+      "empty": "No matching attractions were found. Adjust the city or interests and retry.",
+      "failed": "Candidates for this city failed to load. Other cities are unaffected.",
+      "noImage": "No image",
+      "reviewBeforePlan": "Attractions are ready. Review your selection, then plan again.",
+      "refreshNeeded": "Cities or interests changed. Discover attractions again."
     },
     "specialNeedsPlaceholder": "Tell me your special needs, e.g. traveling with seniors, want to see sunrise, pollen allergy...",
     "submit": "Start Planning",

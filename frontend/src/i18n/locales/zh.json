@@ -30,7 +30,8 @@
     "submitTripPlanFailed": "提交旅行计划失败",
     "queryTaskStatusFailed": "查询任务状态失败",
     "generateTripPlanFailed": "生成旅行计划失败",
-    "healthCheckFailed": "健康检查失败"
+    "healthCheckFailed": "健康检查失败",
+    "attractionCandidatesFailed": "加载热门景点失败"
   },
   "settings": {
     "open": "打开配置",
@@ -45,16 +46,14 @@
       "googleMapsProxy": "Google Maps 代理地址",
       "openaiBaseUrl": "OpenAI 兼容格式 Base URL",
       "openaiModel": "OpenAI 兼容格式 Model",
-      "openaiApiKey": "OpenAI 兼容格式 API Key",
-      "xhsCookie": "小红书 Cookie"
+      "openaiApiKey": "OpenAI 兼容格式 API Key"
     },
     "placeholders": {
       "apiBaseUrl": "例如：http://localhost:8000",
       "googleMapsApiKey": "填写后将优先使用 Google Maps（留空则使用高德）",
       "googleMapsProxy": "例如: http://127.0.0.1:7890 或 socks5://127.0.0.1:1080",
       "openaiBaseUrl": "例如：https://api.openai.com/v1",
-      "openaiModel": "例如：gpt-4o-mini",
-      "xhsCookie": "粘贴完整 Cookie 字符串"
+      "openaiModel": "例如：gpt-4o-mini"
     },
     "runtime": {
       "title": "服务运行状态",
@@ -141,6 +140,20 @@
       "shopping": "购物",
       "art": "艺术",
       "leisure": "休闲"
+    },
+    "discovery": {
+      "title": "先选景点，再生成路线",
+      "description": "基于高德热门度、评分和兴趣匹配推荐。默认选择可随时调整。",
+      "load": "发现热门景点",
+      "loading": "正在发现景点…",
+      "search": "搜索当前城市的候选景点",
+      "selected": "已选 {count} 个",
+      "more": "查看更多",
+      "empty": "没有找到符合条件的景点，可调整城市或兴趣后重试。",
+      "failed": "该城市的候选加载失败，不影响其他城市。",
+      "noImage": "暂无图片",
+      "reviewBeforePlan": "热门景点已加载，请确认选择后再次点击开始规划。",
+      "refreshNeeded": "城市或兴趣已变化，请重新发现景点。"
     },
     "specialNeedsPlaceholder": "告诉我你的特殊需求，比如：带老人出行、想看日出、对花粉过敏……",
     "submit": "开始规划旅程",

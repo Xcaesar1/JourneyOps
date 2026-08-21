@@ -104,7 +104,6 @@
                 <span>{{ t('settings.runtime.model') }} · {{ settingsForm.openai_model || t('settings.runtime.notSet') }}</span>
                 <span>{{ t('settings.runtime.llm') }} · {{ configuredLabel(settingsForm.llm_configured) }}</span>
                 <span>{{ t('settings.runtime.map') }} · {{ configuredLabel(settingsForm.amap_web_configured) }}</span>
-                <span>{{ t('settings.runtime.community') }} · {{ configuredLabel(settingsForm.xhs_configured) }}</span>
               </div>
               <p>{{ t('settings.runtime.secretNotice') }}</p>
             </div>
@@ -138,7 +137,6 @@ const settingsForm = reactive<RuntimeSettings>({
   amap_web_configured: false,
   amap_web_js_configured: false,
   google_maps_configured: false,
-  xhs_configured: false,
   runtime_secret_updates_enabled: false,
 })
 
@@ -167,7 +165,6 @@ const applyRuntimeSettings = (settings: RuntimeSettings) => {
   settingsForm.amap_web_configured = settings.amap_web_configured
   settingsForm.amap_web_js_configured = settings.amap_web_js_configured
   settingsForm.google_maps_configured = settings.google_maps_configured
-  settingsForm.xhs_configured = settings.xhs_configured
   settingsForm.runtime_secret_updates_enabled = settings.runtime_secret_updates_enabled
 }
 

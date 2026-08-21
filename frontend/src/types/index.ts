@@ -19,6 +19,13 @@ export interface Attraction {
   category?: string
   rating?: number
   image_url?: string
+  poi_id?: string
+  image_source?: string
+  image_author?: string
+  image_license?: string
+  image_source_page?: string
+  image_attribution?: string
+  recommendation_reason?: string
   ticket_price?: number
   opening_time?: string | null
   closing_time?: string | null
@@ -197,6 +204,8 @@ export interface TripFormData {
   transportation: string
   accommodation: string
   preferences: string[]
+  must_visit?: string[]
+  avoid?: string[]
   free_text_input: string
   language?: string
   budget_total?: number
@@ -207,6 +216,40 @@ export interface TripFormData {
   daily_end_time?: string
   max_daily_walking_minutes?: number
   accessibility_needs?: string[]
+}
+
+export interface AttractionImageMetadata {
+  url: string
+  source: 'amap' | 'openverse' | 'placeholder' | string
+  author: string
+  license: string
+  source_page: string
+  attribution: string
+}
+
+export interface AttractionCandidate {
+  poi_id: string
+  name: string
+  city: string
+  address: string
+  longitude: number | null
+  latitude: number | null
+  category: string
+  rating: number | null
+  image: AttractionImageMetadata
+  recommendation_score: number
+  recommendation_reason: string
+  matched_interests: string[]
+  is_must_visit: boolean
+}
+
+export interface AttractionCandidatePage {
+  city: string
+  items: AttractionCandidate[]
+  total: number
+  default_selected_ids: string[]
+  degraded: boolean
+  issues: string[]
 }
 
 export interface TripPlanResponse {
@@ -404,7 +447,6 @@ export interface BackendRuntimeSettings {
   amap_web_configured: boolean
   amap_web_js_configured: boolean
   google_maps_configured: boolean
-  xhs_configured: boolean
   runtime_secret_updates_enabled: boolean
 }
 
@@ -420,7 +462,6 @@ export interface RuntimeSettings {
   amap_web_configured: boolean
   amap_web_js_configured: boolean
   google_maps_configured: boolean
-  xhs_configured: boolean
   runtime_secret_updates_enabled: boolean
 }
 

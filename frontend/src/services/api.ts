@@ -1,5 +1,7 @@
 import axios from 'axios'
 import type {
+  AttractionCandidate,
+  AttractionCandidatePage,
   BackendRuntimeSettings,
   RuntimeSettings,
   TripFormData,
@@ -30,7 +32,6 @@ const DEFAULT_RUNTIME_BACKEND_SETTINGS: BackendRuntimeSettings = {
   amap_web_configured: false,
   amap_web_js_configured: false,
   google_maps_configured: false,
-  xhs_configured: false,
   runtime_secret_updates_enabled: false,
 }
 
@@ -138,7 +139,6 @@ const normalizeBackendRuntimeSettings = (
   amap_web_configured: Boolean(data?.amap_web_configured),
   amap_web_js_configured: Boolean(data?.amap_web_js_configured),
   google_maps_configured: Boolean(data?.google_maps_configured),
-  xhs_configured: Boolean(data?.xhs_configured),
   runtime_secret_updates_enabled: Boolean(data?.runtime_secret_updates_enabled),
 })
 
@@ -263,8 +263,8 @@ export async function submitTripPlan(formData: TripFormData): Promise<SubmitTrip
       transport_preferences: formData.transportation ? [formData.transportation] : [],
       accommodation_preference: formData.accommodation || null,
       interests: formData.preferences,
-      must_visit: [],
-      avoid: [],
+      must_visit: formData.must_visit || [],
+      avoid: formData.avoid || [],
       pace: formData.pace || 'balanced',
       daily_start_time: formData.daily_start_time || '09:00:00',
       daily_end_time: formData.daily_end_time || '21:00:00',
@@ -287,6 +287,48 @@ export async function submitTripPlan(formData: TripFormData): Promise<SubmitTrip
   } catch (error: any) {
     console.error('提交旅行计划失败:', error)
     throw new Error(getApiErrorMessage(error, t('api.submitTripPlanFailed')))
+  }
+}
+
+export async function getAttractionCandidates(
+  city: string,
+  days: number,
+  interests: string[] = []
+): Promise<AttractionCandidatePage> {
+  try {
+    const response = await apiClient.get<AttractionCandidatePage>('/api/v2/attractions/candidates', {
+      params: { city, days, limit: 40, interests },
+      paramsSerializer: { indexes: null },
+      timeout: 30000,
+    })
+    return response.data
+  } catch (error: any) {
+    throw new Error(getApiErrorMessage(error, t('api.attractionCandidatesFailed')))
+  }
+}
+
+export async function resolveAttractionImage(candidate: AttractionCandidate): Promise<AttractionCandidate> {
+  if (candidate.image.url) return candidate
+  try {
+    const response = await apiClient.get('/api/poi/photo', {
+      params: { name: candidate.name, city: candidate.city, poi_id: candidate.poi_id },
+      timeout: 20000,
+    })
+    const data = response.data?.data
+    if (!data) return candidate
+    return {
+      ...candidate,
+      image: {
+        url: data.image_url || data.photo_url || '',
+        source: data.source || 'placeholder',
+        author: data.author || '',
+        license: data.license || '',
+        source_page: data.source_page || '',
+        attribution: data.attribution || '',
+      },
+    }
+  } catch {
+    return candidate
   }
 }
 
