@@ -81,6 +81,7 @@ def test_amap_discovery_prioritizes_must_visit_and_filters_avoid_terms() -> None
                 "status": "1",
                 "pois": [
                     _poi("A1", "故宫博物院", category="科教文化服务;博物馆"),
+                    _poi("A4", "故宫博物院-午门", category="风景名胜;旅游景点"),
                     _poi("A2", "避开商业街", category="购物服务"),
                     _poi("A3", "北海公园", category="风景名胜;公园广场", rating="4.8"),
                 ],
@@ -103,6 +104,7 @@ def test_amap_discovery_prioritizes_must_visit_and_filters_avoid_terms() -> None
     assert page.items[0].is_must_visit is True
     assert "历史文化" in page.items[0].matched_interests
     assert all("商业街" not in item.name for item in page.items)
+    assert [item.name for item in page.items if item.is_must_visit] == ["故宫博物院"]
 
 
 def test_amap_discovery_filters_keyword_noise_and_keeps_explicit_must_visit() -> None:

@@ -165,6 +165,8 @@ def _is_discoverable_attraction(
     must_visit: Sequence[str],
 ) -> bool:
     """Reject AMap keyword-search noise while retaining explicit user choices."""
+    if any(marker in item.name for marker in _FACILITY_NAME_MARKERS):
+        return False
     normalized_name = _normalize_name(item.name)
     if any(
         _normalize_name(term) in normalized_name or normalized_name in _normalize_name(term)
@@ -172,8 +174,6 @@ def _is_discoverable_attraction(
         if term.strip()
     ):
         return True
-    if any(marker in item.name for marker in _FACILITY_NAME_MARKERS):
-        return False
     category_root = item.category.split(";")[0].split("|")[0]
     if category_root in _PRIMARY_ATTRACTION_CATEGORIES:
         return True
@@ -247,14 +247,32 @@ def rank_candidates(
             deduplicated[key] = raw
 
     scored: list[tuple[float, _RawCandidate, list[str], bool]] = []
+    must_visit_winners: set[str] = set()
+    for term in must_visit:
+        normalized_term = _normalize_name(term)
+        if not normalized_term:
+            continue
+        matches = [
+            raw
+            for raw in deduplicated.values()
+            if normalized_term in _normalize_name(raw.item.name)
+            or _normalize_name(raw.item.name) in normalized_term
+        ]
+        if not matches:
+            continue
+        winner = max(
+            matches,
+            key=lambda raw: (
+                _normalize_name(raw.item.name) == normalized_term,
+                -raw.query_index,
+                raw.item.rating or 0,
+                -raw.result_index,
+            ),
+        )
+        must_visit_winners.add(_candidate_key(winner.item))
     for raw in deduplicated.values():
         matches = _matched_interests(raw.item, interests)
-        is_must_visit = any(
-            _normalize_name(term) in _normalize_name(raw.item.name)
-            or _normalize_name(raw.item.name) in _normalize_name(term)
-            for term in must_visit
-            if term.strip()
-        )
+        is_must_visit = _candidate_key(raw.item) in must_visit_winners
         provider_score = max(0.0, 42.0 - raw.query_index * 4.0 - raw.result_index * 0.8)
         rating_score = (raw.item.rating or 0) / 5 * 28
         interest_score = min(18.0, len(matches) * 9.0)
