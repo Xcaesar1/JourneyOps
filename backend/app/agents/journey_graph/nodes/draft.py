@@ -17,6 +17,39 @@ def _place_key(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
 
 
+def _candidate_attraction(
+    candidate: AttractionCandidate,
+    *,
+    existing: AttractionV2 | None = None,
+) -> AttractionV2:
+    image = candidate.image
+    base = existing or AttractionV2(name=candidate.name)
+    return base.model_copy(
+        update={
+            "name": candidate.name,
+            "address": candidate.address,
+            "location": (
+                LocationV2(
+                    longitude=candidate.longitude,
+                    latitude=candidate.latitude,
+                )
+                if candidate.longitude is not None and candidate.latitude is not None
+                else base.location
+            ),
+            "category": candidate.category,
+            "poi_id": candidate.poi_id,
+            "rating": candidate.rating,
+            "image_url": image.url,
+            "image_source": image.source,
+            "image_author": image.author,
+            "image_license": image.license,
+            "image_source_page": image.source_page,
+            "image_attribution": image.attribution,
+            "recommendation_reason": candidate.recommendation_reason,
+        }
+    )
+
+
 def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
     """Drop model-invented stops and enrich verified AMap candidates."""
     if not state.get("metrics", {}).get("poi_candidate_policy_enforced", False):
@@ -26,6 +59,8 @@ def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
         for city, items in state.get("poi_candidates", {}).items()
     }
     must_visit = [_place_key(value) for value in state["request"].must_visit]
+    included_poi_ids: set[str] = set()
+    visited_cities: set[str] = set()
     days: list[DayPlanV2] = []
     for day in plan.days:
         city_candidates = candidates_by_city.get(day.city, [])
@@ -44,33 +79,18 @@ def _verified_attractions(state: TripState, plan: TripPlanV2) -> TripPlanV2:
             if candidate is None:
                 verified.append(attraction)
                 continue
-            image = candidate.image
-            verified.append(
-                attraction.model_copy(
-                    update={
-                        "name": candidate.name,
-                        "address": candidate.address,
-                        "location": (
-                            LocationV2(
-                                longitude=candidate.longitude,
-                                latitude=candidate.latitude,
-                            )
-                            if candidate.longitude is not None and candidate.latitude is not None
-                            else attraction.location
-                        ),
-                        "category": candidate.category,
-                        "poi_id": candidate.poi_id,
-                        "rating": candidate.rating,
-                        "image_url": image.url,
-                        "image_source": image.source,
-                        "image_author": image.author,
-                        "image_license": image.license,
-                        "image_source_page": image.source_page,
-                        "image_attribution": image.attribution,
-                        "recommendation_reason": candidate.recommendation_reason,
-                    }
-                )
+            verified.append(_candidate_attraction(candidate, existing=attraction))
+            included_poi_ids.add(candidate.poi_id)
+        if day.city not in visited_cities:
+            verified.extend(
+                _candidate_attraction(candidate)
+                for candidate in city_candidates
+                if candidate.is_must_visit and candidate.poi_id not in included_poi_ids
             )
+            included_poi_ids.update(
+                candidate.poi_id for candidate in city_candidates if candidate.is_must_visit
+            )
+            visited_cities.add(day.city)
         days.append(day.model_copy(update={"attractions": verified}))
     return plan.model_copy(update={"days": days})
 

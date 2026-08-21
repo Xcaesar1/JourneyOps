@@ -101,6 +101,41 @@ def test_draft_node_preserves_request_identity_over_model_output() -> None:
     assert plan.end_date == state["request"].end_date
 
 
+def test_draft_node_restores_selected_candidate_with_coordinates_when_model_omits_it() -> None:
+    state = _normalized_state()
+    state.update(make_plan_intercity_transport_node(NoopRouteEstimateProvider())(state))
+    state["metrics"] = {**state["metrics"], "poi_candidate_policy_enforced": True}
+    state["poi_candidates"] = {
+        "Tokyo": [
+            {
+                "poi_id": "tokyo-sensoji",
+                "name": "Senso-ji",
+                "city": "Tokyo",
+                "address": "Asakusa",
+                "longitude": 139.7967,
+                "latitude": 35.7148,
+                "category": "attraction",
+                "rating": 4.8,
+                "image": {"url": "https://example.test/sensoji.jpg", "source": "amap"},
+                "recommendation_score": 95,
+                "recommendation_reason": "User-selected verified POI",
+                "matched_interests": [],
+                "is_must_visit": True,
+            }
+        ],
+        "Kyoto": [],
+    }
+
+    plan = make_draft_node(build_placeholder_plan)(state)["draft_plan"]
+    attraction = plan.days[0].attractions[0]
+
+    assert attraction.name == "Senso-ji"
+    assert attraction.poi_id == "tokyo-sensoji"
+    assert attraction.location is not None
+    assert attraction.location.longitude == 139.7967
+    assert attraction.image_source == "amap"
+
+
 def test_validate_stub_node_returns_typed_report() -> None:
     state = _enriched_state()
 
